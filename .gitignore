@@ -1,0 +1,40 @@
+# Python Virtual Environment
+.venv/
+
+# Vivado FPGA Project (Xilinx tools)
+FPGA_ALU_RP2/
+.xil/
+vivado*.log
+vivado*.jou
+vivado*.str
+*.bit
+*.dcp
+*.rpt
+*.pb
+*.rpx
+
+# Constraints Directory Specific Files
+constraints/README.md
+constraints/Cmod-A7-Master.xdc
+
+# Documentation and Misc
+AGENTS.md
+
+# Simulation Artifacts (Verilator)
+*.vcd
+obj_dir/
+src/sim/obj_dir/
+
+# IDE and Editor Files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
+
+# PlatformIO (if applicable, but keep project files)
+.pio/
+libdeps/
