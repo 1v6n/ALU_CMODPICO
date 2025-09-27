@@ -67,6 +67,10 @@ module alu_top #(
   wire core_cout;                      //!< Carry del núcleo de la ALU
   wire core_zero;                      //!< Zero flag del núcleo de la ALU
   wire core_overflow;                  //!< Overflow del núcleo de la ALU
+  reg carry_flag_old;                  //!< Flag de carry registrado de operaciones con carry anteriores
+  reg carry_flag_new;                   //!< Flag de carry disponible para la operación actual
+  reg load_sel_d;                      //!< Retardo de un ciclo para load_sel
+  wire is_arith_family;                //!< Indica si el opcode actual pertenece a la familia aritmética
 
   //! @brief Instancia del núcleo ALU combinacional principal
   alu #(
@@ -76,11 +80,30 @@ module alu_top #(
         .A(reg_a),
         .B(reg_b),
         .opcode(reg_sel),
+        .carry_in(carry_flag_new),
         .Result(core_result),
         .Cout(core_cout),
         .Zero(core_zero),
         .Overflow(core_overflow)
       );
+
+  wire [3:0] opcode_family = reg_sel[OPCODE_WIDTH-1:OPCODE_WIDTH-4];                                    //!< Bits superiores del opcode para identificar la familia
+  assign is_arith_family = (alu_pkg::opcode_family_t'(opcode_family) == alu_pkg::OPCODE_FAMILY_ARITH);  //!< Indica si la familia de opcode es aritmética
+
+  always @(posedge clk) begin
+    if (rst) begin
+      carry_flag_old <= 1'b0;
+      carry_flag_new <= 1'b0;
+      load_sel_d <= 1'b0;
+    end else begin
+      carry_flag_new <= carry_flag_old;
+      load_sel_d <= load_sel;
+      if (load_sel_d && is_arith_family) begin
+        carry_flag_old <= core_cout;
+      end
+    end
+  end
+
 
   assign Result = core_result;
   assign Cout = core_cout;

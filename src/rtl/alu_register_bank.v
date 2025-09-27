@@ -25,6 +25,7 @@ module alu_register_bank #(
     output [OPCODE_WIDTH-1:0] reg_sel //!< Salida del registro de selección (opcode, bits bajos)
 );
 
+    
     initial begin
         if (OPCODE_WIDTH > DATA_WIDTH) begin
             $error("alu_register_bank: OPCODE_WIDTH (%0d) excede DATA_WIDTH (%0d)", OPCODE_WIDTH, DATA_WIDTH);

@@ -19,7 +19,9 @@ package alu_pkg;
     //! @brief Enum para selectores de operaciones aritméticas
     typedef enum logic [1:0] {
         ARITH_SEL_ADD = 2'b00, //!< Selección para suma
-        ARITH_SEL_SUB = 2'b01  //!< Selección para resta
+        ARITH_SEL_ADC = 2'b01, //!< Selección para suma con acarreo
+        ARITH_SEL_SUB = 2'b10, //!< Selección para resta
+        ARITH_SEL_SBC = 2'b11  //!< Selección para resta con préstamo
     } arith_sel_t;
 
     //! @brief Enum para selectores de operaciones lógicas

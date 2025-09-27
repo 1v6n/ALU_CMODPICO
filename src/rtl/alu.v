@@ -14,6 +14,7 @@ module alu #(
     input  [DATA_WIDTH-1:0] A,        //!< Operando A
     input  [DATA_WIDTH-1:0] B,        //!< Operando B
     input  [OPCODE_WIDTH-1:0] opcode, //!< Opcode de 6 bits
+    input  logic carry_in,            //!< Acarreo registrado desde la operación previa
     output reg [DATA_WIDTH-1:0] Result, //!< Resultado final de la ALU
     output reg Cout,                 //!< Carry out (solo para operaciones aritméticas)
     output reg Overflow,             //!< Overflow (solo para operaciones aritméticas)
@@ -31,6 +32,7 @@ module alu #(
   wire [DATA_WIDTH-1:0] shift_result; //!< Resultado de la unidad de desplazamiento
   wire arith_cout;                    //!< Carry de la unidad aritmética
   wire arith_overflow;                //!< Overflow de la unidad aritmética
+  logic arith_carry_in;               //!< Acarreo que se entrega a la unidad aritmética
 
   //! @brief Instancia de la unidad aritmética combinacional
   arithmetic_unit #(
@@ -38,6 +40,7 @@ module alu #(
                   ) arith_inst (
                     .A(A),
                     .B(B),
+                    .carry_in(arith_carry_in),
                     .op(arith_sel),
                     .Result(arith_result),
                     .Cout(arith_cout),
@@ -59,6 +62,7 @@ module alu #(
                  .DATA_WIDTH(DATA_WIDTH)
                ) shift_inst (
                  .A(A),
+                 .B(B),
                  .op(shift_sel),
                  .Result(shift_result)
                );
@@ -73,6 +77,7 @@ module alu #(
     Result = {DATA_WIDTH{1'b0}};
     Cout = 1'b0;
     Overflow = 1'b0;
+    arith_carry_in = 1'b0;
 
     unique case (alu_pkg::opcode_family_t'(opcode[5:2]))
              alu_pkg::OPCODE_FAMILY_ARITH:
@@ -81,6 +86,15 @@ module alu #(
                  2'b00:
                  begin
                    arith_sel = alu_pkg::ARITH_SEL_ADD;
+                   arith_carry_in = 1'b0;
+                   Result = arith_result;
+                   Cout = arith_cout;
+                   Overflow = arith_overflow;
+                 end
+                 2'b01:
+                 begin
+                   arith_sel = alu_pkg::ARITH_SEL_ADC;
+                   arith_carry_in = carry_in;
                    Result = arith_result;
                    Cout = arith_cout;
                    Overflow = arith_overflow;
@@ -88,6 +102,15 @@ module alu #(
                  2'b10:
                  begin
                    arith_sel = alu_pkg::ARITH_SEL_SUB;
+                   arith_carry_in = 1'b0;
+                   Result = arith_result;
+                   Cout = arith_cout;
+                   Overflow = arith_overflow;
+                 end
+                 2'b11:
+                 begin
+                   arith_sel = alu_pkg::ARITH_SEL_SBC;
+                   arith_carry_in = carry_in;
                    Result = arith_result;
                    Cout = arith_cout;
                    Overflow = arith_overflow;

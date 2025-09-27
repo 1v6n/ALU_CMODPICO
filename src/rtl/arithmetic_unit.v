@@ -12,6 +12,7 @@ module arithmetic_unit #(
     //! @brief Entradas y salidas de la unidad aritmética combinacional
     input  [DATA_WIDTH-1:0] A,        //!< Operando A
     input  [DATA_WIDTH-1:0] B,        //!< Operando B
+    input  logic carry_in,            //!< Acarreo de entrada (registrado en alu_top)
     input  alu_pkg::arith_sel_t op,   //!< Selección interna de operación aritmética (de alu_pkg)
     output reg [DATA_WIDTH-1:0] Result, //!< Resultado de la operación aritmética
     output reg Cout,                  //!< Carry Out
@@ -20,8 +21,10 @@ module arithmetic_unit #(
 
     //! @brief Módulo arithmetic_unit: Unidad combinacional para operaciones de suma/resta con flags
 
-    wire [DATA_WIDTH:0] add_result_full = {1'b0, A} + {1'b0, B};
-    wire [DATA_WIDTH:0] sub_result_full = {1'b0, A} + {1'b0, ~B} + {{(DATA_WIDTH){1'b0}}, 1'b1};
+    logic [DATA_WIDTH-1:0] add_operand;   //!< Operando B tras ajustes (complemento o directo)
+    logic carry_term;                     //!< Acarreo que se suma a la operación seleccionada
+    logic [DATA_WIDTH:0] wide_result;     //!< Resultado extendido para capturar el carry
+    logic op_valid;                       //!< Indica si la operación seleccionada es válida
 
     //! @brief Bloque always combinacional: selecciona la operación y calcula el resultado/flags
     always @(*) begin
@@ -29,26 +32,49 @@ module arithmetic_unit #(
         Result = {DATA_WIDTH{1'b0}};
         Cout = 1'b0;
         Overflow = 1'b0;
+        add_operand = {DATA_WIDTH{1'b0}};
+        carry_term = 1'b0;
+        wide_result = {DATA_WIDTH+1{1'b0}};
+        op_valid = 1'b0;
     
         case (op)
             alu_pkg::ARITH_SEL_ADD: begin
-                Result = add_result_full[DATA_WIDTH-1:0];
-                Cout = add_result_full[DATA_WIDTH];
-                Overflow = (A[DATA_WIDTH-1] == B[DATA_WIDTH-1]) &&
-                           (A[DATA_WIDTH-1] != Result[DATA_WIDTH-1]);
+                add_operand = B;
+                carry_term = 1'b0;
+                op_valid = 1'b1;
+            end
+            alu_pkg::ARITH_SEL_ADC: begin
+                add_operand = B;
+                carry_term = carry_in;
+                op_valid = 1'b1;
             end
             alu_pkg::ARITH_SEL_SUB: begin
-                Result = sub_result_full[DATA_WIDTH-1:0];
-                Cout = sub_result_full[DATA_WIDTH];
-                Overflow = (A[DATA_WIDTH-1] != B[DATA_WIDTH-1]) &&
-                           (Result[DATA_WIDTH-1] == B[DATA_WIDTH-1]);
+                add_operand = ~B;
+                carry_term = 1'b1;
+                op_valid = 1'b1;
+            end
+            alu_pkg::ARITH_SEL_SBC: begin
+                add_operand = ~B;
+                carry_term = carry_in;
+                op_valid = 1'b1;
             end
             default: begin
                 Result = {DATA_WIDTH{1'b0}};
                 Cout = 1'b0;
                 Overflow = 1'b0;
+                op_valid = 1'b0;
             end
         endcase
+
+        if (op_valid) begin
+            wide_result = {1'b0, A} + {1'b0, add_operand} + {{DATA_WIDTH{1'b0}}, carry_term};
+            Result = wide_result[DATA_WIDTH-1:0];
+            Cout = wide_result[DATA_WIDTH];
+            Overflow = (A[DATA_WIDTH-1] == add_operand[DATA_WIDTH-1]) &&
+                       (Result[DATA_WIDTH-1] != A[DATA_WIDTH-1]);
+        end else begin
+            wide_result = {DATA_WIDTH+1{1'b0}};
+        end
     end
 
 endmodule

@@ -1,10 +1,10 @@
-# Conexiones de Módulos ALU (Arquitectura Alimentada por Bus)
+# Conexiones de Módulos de la ALU
 
-Este documento contiene un gráfico Mermaid que ilustra las conexiones y el flujo de datos para un sistema ALU secuencial alimentado por bus. Este diseño es necesario cuando solo hay un bus de entrada disponible para operandos y señales de control.
+Este documento contiene un gráfico  que ilustra las conexiones y el flujo de datos para la ALU alimentado por un bus. Este diseño es necesario cuando solo hay un bus de entrada disponible para operandos y señales de control.
 
 ```mermaid
 graph TD
-    subgraph "Sistema ALU Alimentado por Bus (Secuencial)"
+    subgraph "Sistema ALU alimentado por bus"
         direction LR
 
         clk[Reloj]
@@ -22,17 +22,17 @@ graph TD
             direction TB
             reg_a["Registro A<br/>(N-bits)"]
             reg_b["Registro B<br/>(N-bits)"]
-            reg_sel["Registro ALU_Sel<br/>(OpCode + Cin)"]
+            reg_sel["Registro ALU_Sel<br/>(funct[5:0])"]
         end
         
         subgraph "Núcleo ALU Combinacional"
             direction TB
             operands["Operandos A y B"]
-            mux_op["Multiplexor opcode[2:0]"]
+            decoder["Decodificador funct[5:0]"]
             arith_inst["Unidad Aritmética"]
             logic_inst["Unidad Lógica"]
             shift_inst["Unidad Desplazamiento"]
-            mux_family["Multiplexor Familia<br/>(opcode[4:3])"]
+            result_mux["Multiplexor de Resultado"]
         end
 
         subgraph "Salidas"
@@ -58,50 +58,43 @@ graph TD
         reg_a --> operands
         reg_b --> operands
 
-        reg_sel -- "opcode[2:0]" --> mux_op
-        mux_op --> arith_inst
-        mux_op --> logic_inst
-        mux_op --> shift_inst
+        reg_sel --> decoder
 
-        reg_sel -- "opcode[4:3]" --> mux_family
+        decoder --> arith_inst
+        decoder --> logic_inst
+        decoder --> shift_inst
 
         operands -- "A y B" --> arith_inst
         operands -- "A y B" --> logic_inst
         operands -- "A" --> shift_inst
 
-        arith_inst --> mux_family
-        logic_inst --> mux_family
-        shift_inst --> mux_family
+        arith_inst --> result_mux
+        logic_inst --> result_mux
+        shift_inst --> result_mux
 
-        mux_family --> Result
+        result_mux --> Result
         arith_inst --> Cout
         arith_inst --> Overflow
-        mux_family --> Zero
+        result_mux --> Zero
         Result --> LED0
         Result --> LED1
         Result --> LED_B_n
         Result --> LED_G_n
         Result --> LED_R_n
     end
-
-    style arith_inst fill:#000,stroke:#fff,stroke-width:2px
-    style logic_inst fill:#000,stroke:#fff,stroke-width:2px
-    style shift_inst fill:#000,stroke:#fff,stroke-width:2px
-    style mux_family fill:#000,stroke:#fff,stroke-width:2px
-    style mux_op fill:#000,stroke:#fff,stroke-width:2px
 ```
 
 ### Cómo Funciona el Diseño:
 
 1.  **Bus de Entrada Único**: Hay un solo bus de entrada, `data_in`, para todo.
-2.  **Señales de Control**: Se necesitan nuevas entradas para controlar el proceso de carga:
+2.  **Señales de Control**: Se necesitan entradas de control para manejar el bus mencionado anteriormente.
     *   `load_a`: Cuando esta señal está alta, el valor en `data_in` se carga en el `Registro A` en el siguiente flanco de reloj.
     *   `load_b`: Cuando está alta, `data_in` se carga en el `Registro B`.
     *   `load_sel`: Cuando está alta, `data_in` se carga en el `Registro ALU_Sel`.
 3.  **Registros Internos**: `reg_a`, `reg_b` y `reg_sel` son esenciales. Mantienen el contexto para la operación.
-4.  **Código de Operación (`ALU_Sel`) y `Cin`**: El `Registro ALU_Sel` ahora contiene un valor más amplio (por ejemplo, 5 bits). Los bits superiores representan la operación principal (ADD, SUB, etc.), mientras que el bit menos significativo (`bit 0`) se usa como el valor `Cin` para el Núcleo ALU. Esto se carga en un solo paso vía la señal `load_sel`.
+4.  **Código de Operación (`reg_sel`)**: El registro de selección almacena el campo `funct` de 6 bits. Los bits `[5:2]` definen la familia (1000 = aritmética, 1001 = lógica, 0000 = desplazamientos) y los bits bajos seleccionan la operación específica.
 5.  **Secuencia de Operación**: Para realizar una operación (por ejemplo, resta):
     *   **Ciclo 1**: Coloca el valor del operando A en `data_in`, establece `load_a` alto. El flanco de reloj captura el valor en `reg_a`.
     *   **Ciclo 2**: Coloca el valor del operando B en `data_in`, establece `load_b` alto. El flanco de reloj captura el valor en `reg_b`.
-    *   **Ciclo 3**: Coloca el código de operación combinado (por ejemplo, `5'b0001_1` para SUB) en `data_in`, establece `load_sel` alto. El flanco de reloj captura el valor en `reg_sel`.
-6.  **Cálculo Continuo**: Tan pronto como los registros se cargan, el **núcleo ALU combinacional** usa instantáneamente los valores de `reg_a`, `reg_b` y los bits apropiados de `reg_sel` para calcular el resultado. El multiplexor de opcode[2:0] distribuye la operación a las unidades funcionales, y el multiplexor de familia selecciona la salida final basada en opcode[4:3].
+    *   **Ciclo 3**: Coloca el código `6'b100010` (SUB) en `data_in`, establece `load_sel` alto. El flanco de reloj captura el valor en `reg_sel`.
+6.  **Cálculo Continuo**: Luego de que los registros se cargan, el núcleo  de la ALU, completamente combinacional extrae la familia desde `opcode[5:2]` y luego emplea los bits bajos para escoger la operación dentro de esa familia. Con ello se fijan los selectores internos (`arith_sel`, `logic_sel`, `shift_sel`) y se enruta el resultado correcto a la salida.
