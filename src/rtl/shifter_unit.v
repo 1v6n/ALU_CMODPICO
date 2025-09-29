@@ -1,3 +1,5 @@
+`include "alu_timescale.vh"
+
 /*
  * @file shifter_unit.v
  * @brief Unidad de desplazamiento combinacional: SRL y SRA con desplazamiento variable sobre operando A.
@@ -11,19 +13,19 @@ module shifter_unit #(
     parameter DATA_WIDTH = 8
 ) (
     //! @brief Entradas y salidas de la unidad de desplazamiento combinacional
-    input  [DATA_WIDTH-1:0] A,         //!< Operando A
-    input  [DATA_WIDTH-1:0] B,         //!< Operando B (valor indica el desplazamiento)
+    input [DATA_WIDTH-1:0] A,  //!< Operando A
+    input [DATA_WIDTH-1:0] B,  //!< Operando B (valor indica el desplazamiento)
     input  alu_pkg::shift_sel_t op,    //!< Selección interna de operación de desplazamiento (de alu_pkg)
-    output reg [DATA_WIDTH-1:0] Result //!< Resultado de la operación de desplazamiento
+    output reg [DATA_WIDTH-1:0] Result  //!< Resultado de la operación de desplazamiento
 );
 
-    //! @brief Bloque always combinacional: selecciona y aplica desplazamiento variable
-    always @(*) begin
-        case (op)
-            alu_pkg::SHIFT_SEL_SRL: Result = A >> B;              //!< Desplazamiento derecho lógico
-            alu_pkg::SHIFT_SEL_SRA: Result = $signed(A) >>> B;    //!< Desplazamiento derecho aritmético, casteo a signed
-            default:                Result = {DATA_WIDTH{1'b0}};  //!< Valor por defecto (cero)
-        endcase
-    end
+  //! @brief Bloque always combinacional: selecciona y aplica desplazamiento variable
+  always @(*) begin
+    unique case (op)
+      alu_pkg::SHIFT_SEL_SRL: Result = A >> B;
+      alu_pkg::SHIFT_SEL_SRA: Result = $signed(A) >>> B;
+      default:                Result = {DATA_WIDTH{1'b0}};
+    endcase
+  end
 
 endmodule

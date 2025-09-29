@@ -9,6 +9,7 @@ Soporta pruebas dirigidas para operaciones aritméticas, lógicas y de desplazam
 """
 
 import argparse
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -50,6 +51,102 @@ def format_opcode(opcode: int, use_hex: bool) -> str:
     return f"0x{opcode:02X}" if use_hex else f"{opcode}"
 
 
+OPCODE_NAMES: dict[int, str] = {
+    Opcode.ADD: "ADD",
+    Opcode.ADC: "ADC",
+    Opcode.SUB: "SUB",
+    Opcode.SBC: "SBC",
+    Opcode.AND: "AND",
+    Opcode.OR: "OR",
+    Opcode.XOR: "XOR",
+    Opcode.NOR: "NOR",
+    Opcode.SRL: "SRL",
+    Opcode.SRA: "SRA",
+}
+
+
+def opcode_to_name(opcode: int | None) -> str:
+    return OPCODE_NAMES.get(opcode, f"0x{opcode:02X}" if opcode is not None else "???")
+
+
+def opcode_uses_carry(opcode: int | None) -> bool:
+    return opcode in (Opcode.ADC, Opcode.SBC)
+
+
+def opcode_updates_carry(opcode: int | None) -> bool:
+    return opcode in (Opcode.ADD, Opcode.ADC, Opcode.SUB, Opcode.SBC)
+
+
+def format_hex8(value: int | None) -> str:
+    return f"0x{value & 0xFF:02X}" if value is not None else "0x??"
+
+
+def format_test_context(
+    name: str,
+    opcode: int | None,
+    a_val: int | None,
+    b_val: int | None,
+    include_carry: bool,
+    carry_in: bool,
+) -> str:
+    safe_name = name or "Test"
+    safe_a = format_hex8(a_val)
+    safe_b = format_hex8(b_val)
+    base = (
+        f"{safe_name:<24} | op={opcode_to_name(opcode):<3} | "
+        f"A={safe_a} | B={safe_b}"
+    )
+    if include_carry:
+        base += f" | Cin={int(carry_in)}"
+    return base
+
+
+def format_snapshot(result: int | None, cout: int | None, zero: int | None, overflow: int | None) -> str:
+    res_str = format_hex8(result)
+    def flag_str(value: int | None) -> str:
+        return str(value) if value is not None else "?"
+
+    return (
+        f"Res={res_str} Cout={flag_str(cout)} "
+        f"Zero={flag_str(zero)} Ovf={flag_str(overflow)}"
+    )
+
+
+def normalize_flag(value: int | bool | None) -> int | None:
+    if value is None:
+        return None
+    return int(value)
+
+
+def format_snapshot_comparison(
+    actual_result: int | None,
+    expected_result: int | None,
+    actual_cout: int | None,
+    expected_cout: int | bool | None,
+    actual_zero: int | None,
+    expected_zero: int | bool | None,
+    actual_overflow: int | None,
+    expected_overflow: int | bool | None,
+) -> str:
+    expected_result_str = format_hex8(expected_result) if expected_result is not None else "--"
+    actual_result_str = format_hex8(actual_result)
+    expected_cout_norm = normalize_flag(expected_cout)
+    expected_zero_norm = normalize_flag(expected_zero)
+    expected_overflow_norm = normalize_flag(expected_overflow)
+
+    def fmt_flag_pair(actual: int | None, expected: int | None) -> str:
+        actual_str = str(actual) if actual is not None else "?"
+        expected_str = str(expected) if expected is not None else "--"
+        return f"{actual_str} (exp {expected_str})"
+
+    return (
+        f"Res={actual_result_str} (exp {expected_result_str}) "
+        f"Cout={fmt_flag_pair(actual_cout, expected_cout_norm)} "
+        f"Zero={fmt_flag_pair(actual_zero, expected_zero_norm)} "
+        f"Ovf={fmt_flag_pair(actual_overflow, expected_overflow_norm)}"
+    )
+
+
 def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
                        cout=None, zero=None, overflow=None, *, use_hex: bool):
     """
@@ -67,10 +164,9 @@ def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
     @return Lista de TestVector para la secuencia de prueba.
     """
     test_sequence = [
-        #TestVector("R\n", None),
+        TestVector(f"S {format_opcode(opcode, use_hex)}\n", None),
         TestVector(f"A 0x{a_val:02X}\n", None),
         TestVector(f"B 0x{b_val:02X}\n", None),
-        TestVector(f"S {format_opcode(opcode, use_hex)}\n", None),
         TestVector("P\n", (f"Result=0x{expected_result:02X}",))
     ]
 
@@ -85,7 +181,11 @@ def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
         'name': test_name,
         'expected_result': expected_result,
         'a_val': a_val,
-        'b_val': b_val
+        'b_val': b_val,
+        'opcode': opcode,
+        'cout': cout,
+        'zero': zero,
+        'overflow': overflow,
     }
 
     return test_sequence
@@ -107,8 +207,8 @@ DIRECTED_CASES = [
     ("OR",                 Opcode.OR,  0x55, 0x0F, 0x5F, 0, 0, 0),
     ("XOR",                Opcode.XOR, 0xAA, 0x5A, 0xF0, 0, 0, 0),
     ("NOR",                Opcode.NOR, 0xFF, 0x00, 0x00, 0, 1, 0),
-    ("SRL",                Opcode.SRL, 0x02, 0x00, 0x01, 0, 0, 0),
-    ("SRA",                Opcode.SRA, 0x81, 0x00, 0xC0, 0, 0, 0),
+    ("SRL",                Opcode.SRL, 0x02, 0x01, 0x01, 0, 0, 0),
+    ("SRA",                Opcode.SRA, 0x81, 0x01, 0xC0, 0, 0, 0),
 ]
 
 
@@ -170,6 +270,7 @@ def run_test(port: str, baud: int, timeout: float, use_hex: bool) -> bool:
 
             vectors = build_test_sequence(use_hex)
             overall_pass = True
+            carry_state = False
             test_number = 0
 
             for vector in vectors:
@@ -181,45 +282,60 @@ def run_test(port: str, baud: int, timeout: float, use_hex: bool) -> bool:
 
                 if vector.expect_substrings:
                     test_number += 1
+                    info = vector.test_info or {}
+                    opcode = info.get('opcode')
+                    include_carry = opcode_uses_carry(opcode)
+                    carry_in = carry_state if include_carry else False
+
+                    context = format_test_context(
+                        info.get('name', f"Test {test_number}"),
+                        opcode,
+                        info.get('a_val'),
+                        info.get('b_val'),
+                        include_carry,
+                        carry_in,
+                    )
+
                     missing = [needle for needle in vector.expect_substrings if needle not in text]
                     if missing:
-                        sys.stderr.write(
-                            f"[FAIL] Test {test_number} Command '{vector.command.strip()}' missing {missing}{text}"
-                        )
+                        response = text if text.endswith("\n") else text + "\n"
+                        sys.stderr.write(f"[FAIL] {context} missing {missing}\n{response}")
                         overall_pass = False
-                    else:
-                        import re
-                        result_match = re.search(r'Result=0x([0-9A-Fa-f]+)', text)
-                        cout_match = re.search(r'Cout=(\d+)', text)
-                        zero_match = re.search(r'Zero=(\d+)', text)
-                        overflow_match = re.search(r'Overflow=(\d+)', text)
+                        continue
 
-                        actual_result = result_match.group(1) if result_match else "??"
-                        actual_cout = cout_match.group(1) if cout_match else "?"
-                        actual_zero = zero_match.group(1) if zero_match else "?"
-                        actual_overflow = overflow_match.group(1) if overflow_match else "?"
+                    result_match = re.search(r'Result=0x([0-9A-Fa-f]+)', text)
+                    cout_match = re.search(r'Cout=(\d+)', text)
+                    zero_match = re.search(r'Zero=(\d+)', text)
+                    overflow_match = re.search(r'Overflow=(\d+)', text)
 
-                        if vector.test_info:
-                            name = vector.test_info['name']
-                            expected = f"{vector.test_info['expected_result']:02X}"
-                            a_val = vector.test_info['a_val']
-                            b_val = vector.test_info['b_val']
+                    actual_result_val = int(result_match.group(1), 16) if result_match else None
+                    actual_cout_val = int(cout_match.group(1)) if cout_match else None
+                    actual_zero_val = int(zero_match.group(1)) if zero_match else None
+                    actual_overflow_val = int(overflow_match.group(1)) if overflow_match else None
 
-                            expected_cout = "?"
-                            expected_zero = "?"
-                            expected_overflow = "?"
+                    expected_result_val = info.get('expected_result')
+                    expected_cout_val = info.get('cout')
+                    expected_zero_val = info.get('zero')
+                    expected_overflow_val = info.get('overflow')
 
-                            for substring in vector.expect_substrings:
-                                if substring.startswith('Cout='):
-                                    expected_cout = substring.split('=')[1]
-                                elif substring.startswith('Zero='):
-                                    expected_zero = substring.split('=')[1]
-                                elif substring.startswith('Overflow='):
-                                    expected_overflow = substring.split('=')[1]
+                    print(
+                        "[PASS] "
+                        + context
+                        + " | "
+                        + format_snapshot_comparison(
+                            actual_result_val,
+                            expected_result_val,
+                            actual_cout_val,
+                            expected_cout_val,
+                            actual_zero_val,
+                            expected_zero_val,
+                            actual_overflow_val,
+                            expected_overflow_val,
+                        )
+                    )
 
-                            print(f"[PASS] Test {test_number:2d} {name:12s} | A=0x{a_val:02X} B=0x{b_val:02X} | Result: 0x{actual_result} (exp: 0x{expected}) | Cout: {actual_cout} (exp: {expected_cout}) | Zero: {actual_zero} (exp: {expected_zero}) | Overflow: {actual_overflow} (exp: {expected_overflow})")
-                        else:
-                            print(f"[PASS] Test {test_number} {vector.command.strip()} -> {', '.join(vector.expect_substrings)}")
+                    if opcode_updates_carry(opcode) and actual_cout_val is not None:
+                        carry_state = bool(actual_cout_val)
                 else:
                     print(f"[INFO] {vector.command.strip()} (setup)")
 

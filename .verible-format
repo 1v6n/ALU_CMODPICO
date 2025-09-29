@@ -1,0 +1,29 @@
+# Verible format configuration for FPGA_ALU_RP2
+# Docs: https://chipsalliance.github.io/verible/verilog_format.html
+
+# prefer 4-space indentation (no tabs)
+tab_width: 4
+indentation_spaces: 4
+use_tabs: false
+
+# wrap lines longer than 100 columns
+max_line_length: 100
+
+# Keep ports/signal lists vertically aligned where practicable.
+align_port_declarations: true
+named_parameter_alignment: flush-left
+
+# Compact one-line begin/end blocks when the body is short.
+wrap_short_statements: false
+
+# Preserve blank lines between logical sections to keep comments readable.
+preserve_hierarchy_instances: true
+
+# Leave module instantiations with one port per line when names are long.
+allow_port_reference_wrapping: true
+
+# Don’t reorder includes.
+reorder_includes: false
+
+# Keep one declaration per line to match existing style.
+one_declaration_per_line: true

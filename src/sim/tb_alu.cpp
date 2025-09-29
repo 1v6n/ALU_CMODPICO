@@ -113,6 +113,26 @@ std::string format_dut_snapshot(const Valu_top *dut)
     return snap.str();
 }
 
+std::string format_snapshot_comparison(const Valu_top *dut,
+                                       const ModelOut &expected,
+                                       bool expected_zero)
+{
+    auto fmt_flag = [](uint32_t actual, uint32_t exp) -> std::string
+    {
+        std::ostringstream flag;
+        flag << actual << " (exp " << exp << ")";
+        return flag.str();
+    };
+
+    std::ostringstream oss;
+    oss << "Res=" << format_hex8(dut->Result)
+        << " (exp " << format_hex8(expected.result) << ") "
+        << "Cout=" << fmt_flag(static_cast<uint32_t>(dut->Cout), expected.cout ? 1U : 0U) << ' '
+        << "Zero=" << fmt_flag(static_cast<uint32_t>(dut->Zero), expected_zero ? 1U : 0U) << ' '
+        << "Ovf=" << fmt_flag(static_cast<uint32_t>(dut->Overflow), expected.overflow ? 1U : 0U);
+    return oss.str();
+}
+
 std::string format_test_context(const TestCase &tc, bool include_carry, bool carry_in)
 {
     std::ostringstream oss;
@@ -369,7 +389,7 @@ bool check_outputs(Valu_top *dut, const ModelOut &expected, const TestCase &tc, 
     if (pass)
     {
         std::cout << "  [PASS] " << test_context
-                  << " | " << format_dut_snapshot(dut)
+                  << " | " << format_snapshot_comparison(dut, expected, expected_zero)
                   << std::endl;
     }
 
