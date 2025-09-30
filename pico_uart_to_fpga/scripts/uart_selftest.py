@@ -101,14 +101,14 @@ def format_test_context(
     return base
 
 
-def format_snapshot(result: int | None, cout: int | None, zero: int | None, overflow: int | None) -> str:
+def format_snapshot(result: int | None, cout: int | None, zero: int | None) -> str:
     res_str = format_hex8(result)
     def flag_str(value: int | None) -> str:
         return str(value) if value is not None else "?"
 
     return (
         f"Res={res_str} Cout={flag_str(cout)} "
-        f"Zero={flag_str(zero)} Ovf={flag_str(overflow)}"
+        f"Zero={flag_str(zero)}"
     )
 
 
@@ -125,14 +125,11 @@ def format_snapshot_comparison(
     expected_cout: int | bool | None,
     actual_zero: int | None,
     expected_zero: int | bool | None,
-    actual_overflow: int | None,
-    expected_overflow: int | bool | None,
 ) -> str:
     expected_result_str = format_hex8(expected_result) if expected_result is not None else "--"
     actual_result_str = format_hex8(actual_result)
     expected_cout_norm = normalize_flag(expected_cout)
     expected_zero_norm = normalize_flag(expected_zero)
-    expected_overflow_norm = normalize_flag(expected_overflow)
 
     def fmt_flag_pair(actual: int | None, expected: int | None) -> str:
         actual_str = str(actual) if actual is not None else "?"
@@ -142,13 +139,12 @@ def format_snapshot_comparison(
     return (
         f"Res={actual_result_str} (exp {expected_result_str}) "
         f"Cout={fmt_flag_pair(actual_cout, expected_cout_norm)} "
-        f"Zero={fmt_flag_pair(actual_zero, expected_zero_norm)} "
-        f"Ovf={fmt_flag_pair(actual_overflow, expected_overflow_norm)}"
+        f"Zero={fmt_flag_pair(actual_zero, expected_zero_norm)}"
     )
 
 
 def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
-                       cout=None, zero=None, overflow=None, *, use_hex: bool):
+                       cout=None, zero=None, *, use_hex: bool):
     """
     @brief Función auxiliar para crear secuencia de prueba para una operación única.
     Genera una secuencia de comandos UART: reset (R), set opcode (S), load A/B, print (P).
@@ -160,7 +156,6 @@ def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
     @param expected_result Resultado esperado (hex).
     @param cout Carry esperado (opcional, bool).
     @param zero Flag de cero esperado (opcional, bool).
-    @param overflow Flag de overflow esperado (opcional, bool).
     @return Lista de TestVector para la secuencia de prueba.
     """
     test_sequence = [
@@ -174,9 +169,6 @@ def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
         test_sequence[-1].expect_substrings += (f"Cout={cout}",)
     if zero is not None:
         test_sequence[-1].expect_substrings += (f"Zero={zero}",)
-    if overflow is not None:
-        test_sequence[-1].expect_substrings += (f"Overflow={overflow}",)
-
     test_sequence[-1].test_info = {
         'name': test_name,
         'expected_result': expected_result,
@@ -185,30 +177,27 @@ def run_operation_test(test_name, opcode, a_val, b_val, expected_result,
         'opcode': opcode,
         'cout': cout,
         'zero': zero,
-        'overflow': overflow,
     }
 
     return test_sequence
 
 
 DIRECTED_CASES = [
-    ("SUMA",               Opcode.ADD, 0x0A, 0x05, 0x0F, 0, 0, 0),
-    ("SUMA con carry",     Opcode.ADD, 0xFF, 0x01, 0x00, 1, 1, 0),
-    ("ADC con carry",      Opcode.ADC, 0x40, 0x40, 0x81, 0, 0, 1),
-    ("SUMA reset carry",  Opcode.ADD, 0x01, 0x01, 0x02, 0, 0, 0),
-    ("ADC sin carry",      Opcode.ADC, 0x05, 0x03, 0x08, 0, 0, 0),
-    ("SUMA con overflow",  Opcode.ADD, 0x7F, 0x01, 0x80, 0, 0, 1),
-    ("RESTA",              Opcode.SUB, 0x34, 0x12, 0x22, 1, 0, 0),
-    ("RESTA con overflow", Opcode.SUB, 0x80, 0x01, 0x7F, 1, 0, 1),
-    ("SBC sin borrow",   Opcode.SBC, 0x34, 0x12, 0x22, 1, 0, 0),
-    ("SUB con borrow",     Opcode.SUB, 0x00, 0x01, 0xFF, 0, 0, 0),
-    ("SBC con borrow",   Opcode.SBC, 0x00, 0x00, 0xFF, 0, 0, 0),
-    ("AND",                Opcode.AND, 0xF0, 0x0F, 0x00, 0, 1, 0),
-    ("OR",                 Opcode.OR,  0x55, 0x0F, 0x5F, 0, 0, 0),
-    ("XOR",                Opcode.XOR, 0xAA, 0x5A, 0xF0, 0, 0, 0),
-    ("NOR",                Opcode.NOR, 0xFF, 0x00, 0x00, 0, 1, 0),
-    ("SRL",                Opcode.SRL, 0x02, 0x01, 0x01, 0, 0, 0),
-    ("SRA",                Opcode.SRA, 0x81, 0x01, 0xC0, 0, 0, 0),
+    ("SUMA",               Opcode.ADD, 0x0A, 0x05, 0x0F, 0, 0),
+    ("SUMA con carry",     Opcode.ADD, 0xFF, 0x01, 0x00, 1, 1),
+    ("ADC con carry",      Opcode.ADC, 0x40, 0x40, 0x81, 0, 0),
+    ("SUMA reset carry",   Opcode.ADD, 0x01, 0x01, 0x02, 0, 0),
+    ("ADC sin carry",      Opcode.ADC, 0x05, 0x03, 0x08, 0, 0),
+    ("RESTA",              Opcode.SUB, 0x34, 0x12, 0x22, 1, 0),
+    ("SBC sin borrow",     Opcode.SBC, 0x34, 0x12, 0x22, 1, 0),
+    ("SUB con borrow",     Opcode.SUB, 0x00, 0x01, 0xFF, 0, 0),
+    ("SBC con borrow",     Opcode.SBC, 0x00, 0x00, 0xFF, 0, 0),
+    ("AND",                Opcode.AND, 0xF0, 0x0F, 0x00, 0, 1),
+    ("OR",                 Opcode.OR,  0x55, 0x0F, 0x5F, 0, 0),
+    ("XOR",                Opcode.XOR, 0xAA, 0x5A, 0xF0, 0, 0),
+    ("NOR",                Opcode.NOR, 0xFF, 0x00, 0x00, 0, 1),
+    ("SRL",                Opcode.SRL, 0x02, 0x01, 0x01, 0, 0),
+    ("SRA",                Opcode.SRA, 0x81, 0x01, 0xC0, 0, 0),
 ]
 
 
@@ -226,7 +215,7 @@ def build_test_sequence(use_hex: bool) -> list[TestVector]:
         list[TestVector]: Una lista de objetos TestVector que representan la secuencia de pruebas.
     """
     sequence: list[TestVector] = []
-    for name, opcode, a_val, b_val, expected, cout, zero, overflow in DIRECTED_CASES:
+    for name, opcode, a_val, b_val, expected, cout, zero in DIRECTED_CASES:
         sequence.extend(
             run_operation_test(
                 name,
@@ -236,7 +225,6 @@ def build_test_sequence(use_hex: bool) -> list[TestVector]:
                 expected,
                 cout=cout,
                 zero=zero,
-                overflow=overflow,
                 use_hex=use_hex,
             )
         )
@@ -306,17 +294,14 @@ def run_test(port: str, baud: int, timeout: float, use_hex: bool) -> bool:
                     result_match = re.search(r'Result=0x([0-9A-Fa-f]+)', text)
                     cout_match = re.search(r'Cout=(\d+)', text)
                     zero_match = re.search(r'Zero=(\d+)', text)
-                    overflow_match = re.search(r'Overflow=(\d+)', text)
 
                     actual_result_val = int(result_match.group(1), 16) if result_match else None
                     actual_cout_val = int(cout_match.group(1)) if cout_match else None
                     actual_zero_val = int(zero_match.group(1)) if zero_match else None
-                    actual_overflow_val = int(overflow_match.group(1)) if overflow_match else None
 
                     expected_result_val = info.get('expected_result')
                     expected_cout_val = info.get('cout')
                     expected_zero_val = info.get('zero')
-                    expected_overflow_val = info.get('overflow')
 
                     print(
                         "[PASS] "
@@ -329,8 +314,6 @@ def run_test(port: str, baud: int, timeout: float, use_hex: bool) -> bool:
                             expected_cout_val,
                             actual_zero_val,
                             expected_zero_val,
-                            actual_overflow_val,
-                            expected_overflow_val,
                         )
                     )
 

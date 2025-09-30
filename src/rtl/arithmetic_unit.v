@@ -18,8 +18,7 @@ module arithmetic_unit #(
     input carry_in,  //!< Acarreo de entrada (registrado en alu_top)
     input alu_pkg::arith_sel_t op,  //!< Selección interna de operación aritmética (de alu_pkg)
     output reg [DATA_WIDTH-1:0] Result,  //!< Resultado de la operación aritmética
-    output reg Cout,  //!< Carry Out
-    output reg Overflow  //!< Overflow
+    output reg Cout  //!< Carry Out
 );
 
   reg [DATA_WIDTH-1:0] add_operand;  //!< Operando B tras ajustes (complemento o directo)
@@ -32,7 +31,6 @@ module arithmetic_unit #(
 
     Result = {DATA_WIDTH{1'b0}};
     Cout = alu_pkg::FALSE;
-    Overflow = alu_pkg::FALSE;
     add_operand = {DATA_WIDTH{1'b0}};
     carry_term = alu_pkg::FALSE;
     wide_result = {DATA_WIDTH + 1{1'b0}};
@@ -61,7 +59,6 @@ module arithmetic_unit #(
       default: begin
         Result = {DATA_WIDTH{1'b0}};
         Cout = alu_pkg::FALSE;
-        Overflow = alu_pkg::FALSE;
         op_valid = alu_pkg::FALSE;
       end
     endcase
@@ -70,8 +67,6 @@ module arithmetic_unit #(
       wide_result = {1'b0, A} + {1'b0, add_operand} + {{DATA_WIDTH{1'b0}}, carry_term};
       Result = wide_result[DATA_WIDTH-1:0];
       Cout = wide_result[DATA_WIDTH];
-      Overflow = (A[DATA_WIDTH-1] == add_operand[DATA_WIDTH-1]) &&
-                       (Result[DATA_WIDTH-1] != A[DATA_WIDTH-1]);
     end else begin
       wide_result = {DATA_WIDTH + 1{1'b0}};
     end

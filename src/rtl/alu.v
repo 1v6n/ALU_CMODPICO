@@ -21,7 +21,6 @@ module alu #(
     input                         carry_in,  //!< Carry registrado desde la operación previa
     output reg [  DATA_WIDTH-1:0] Result,    //!< Resultado final de la ALU
     output reg                    Cout,      //!< Carry out (solo para operaciones aritméticas)
-    output reg                    Overflow,  //!< Overflow (solo para operaciones aritméticas)
     output                        Zero       //!< Zero flag (resultado es cero)
 );
 
@@ -38,7 +37,6 @@ module alu #(
   wire [DATA_WIDTH-1:0] logic_result;  //!< Resultado de la unidad lógica
   wire [DATA_WIDTH-1:0] shift_result;  //!< Resultado de la unidad de desplazamiento
   wire arith_cout;  //!< Carry de la unidad aritmética
-  wire arith_overflow;  //!< Overflow de la unidad aritmética
 
   //! @brief Instancia de la unidad aritmética combinacional
   arithmetic_unit #(
@@ -49,8 +47,7 @@ module alu #(
       .carry_in(arith_carry_in),
       .op(arith_sel),
       .Result(arith_result),
-      .Cout(arith_cout),
-      .Overflow(arith_overflow)
+      .Cout(arith_cout)
   );
 
   //! @brief Instancia de la unidad lógica combinacional
@@ -141,12 +138,10 @@ module alu #(
   always @(*) begin
     Result = {DATA_WIDTH{1'b0}};
     Cout = alu_pkg::FALSE;
-    Overflow = alu_pkg::FALSE;
 
     if (use_arith) begin
       Result = arith_result;
       Cout = arith_cout;
-      Overflow = arith_overflow;
 
     end else if (use_logic) begin
       Result = logic_result;

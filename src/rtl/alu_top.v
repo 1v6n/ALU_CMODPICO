@@ -29,7 +29,6 @@ module alu_top #(
     output [DATA_WIDTH-1:0] Result,   //!< Resultado de la operación ALU
     output                  Cout,     //!< Carry Out
     output                  Zero,     //!< Zero flag
-    output                  Overflow, //!< Overflow
 
     output result_led0,     //!< LED0: refleja bit 0 del resultado (activo alto)
     output result_led1,     //!< LED1: refleja bit 1 del resultado (activo alto)
@@ -61,7 +60,6 @@ module alu_top #(
   wire [DATA_WIDTH-1:0] core_result;  //!< Resultado del núcleo de la ALU
   wire core_cout;  //!< Carry del núcleo de la ALU
   wire core_zero;  //!< Zero flag del núcleo de la ALU
-  wire core_overflow;  //!< Overflow del núcleo de la ALU
   wire is_arith_family;  //!< Indica si la familia de opcode es aritmética
   reg carry_flag_old;  //!< Flag de carry registrado de operaciones con carry anteriores
   reg carry_flag_new;  //!< Flag de carry disponible para la operación actual
@@ -78,8 +76,7 @@ module alu_top #(
       .carry_in(carry_flag_new),
       .Result(core_result),
       .Cout(core_cout),
-      .Zero(core_zero),
-      .Overflow(core_overflow)
+      .Zero(core_zero)
   );
 
   wire [3:0] opcode_family = reg_sel[OPCODE_WIDTH-1:OPCODE_WIDTH-4];                                    //!< Bits superiores del opcode para identificar la familia
@@ -108,7 +105,6 @@ module alu_top #(
   assign Result = core_result;  //!< Resultado final de la ALU
   assign Cout = core_cout;  //!< Carry out final de la ALU
   assign Zero = core_zero;  //!< Zero flag final de la ALU
-  assign Overflow = core_overflow;  //!< Overflow final de la ALU
   assign result_led0 = core_result[0];  //!< LED0 refleja bit 0 del resultado (activo alto)
   assign result_led1 = (DATA_WIDTH > 1) ? core_result[1] : 1'b0; //!< LED1 refleja bit 1 del resultado (activo alto)
   assign result_led_b_n = (DATA_WIDTH > 2) ? ~core_result[2] : 1'b1; //!< LED Azul refleja bit 2 invertido (activo bajo)
