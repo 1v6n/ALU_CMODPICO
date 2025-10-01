@@ -36,7 +36,7 @@ testcase_t smoke_vectors[$] = '{
     '{ "SRL", 6'h02, 8'hC0, 8'h03, 8'h18, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0 },
     '{ "SRA", 6'h03, 8'h81, 8'h02, 8'hE0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1, 1'b1, 1'b1 },
     '{ "SRL_WIDE", 6'h02, 8'hAA, 8'h20, 8'h00, 1'b0, 1'b1, 1'b0, 1'b0, 1'b1, 1'b1, 1'b1 }
-};
+}
 
 testcase_t random_vectors[$] = '{
     '{ "RND_0", 6'h21, 8'h0C, 8'h8C, 8'h98, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1, 1'b0, 1'b0 },
@@ -239,7 +239,7 @@ testcase_t random_vectors[$] = '{
     '{ "RND_197", 6'h21, 8'hAE, 8'h06, 8'hB4, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1, 1'b0 },
     '{ "RND_198", 6'h26, 8'hFA, 8'h36, 8'hCC, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b1 },
     '{ "RND_199", 6'h26, 8'hB9, 8'hEB, 8'h52, 1'b0, 1'b0, 1'b0, 1'b1, 1'b1, 1'b1, 1'b0 }
-};
+}
 
 `endif // ALU_TEST_VECTORS_SVH
 

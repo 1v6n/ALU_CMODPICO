@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Generate ALU test vectors with precomputed expected results."""
+"""
+Generador de Vectores de Prueba para la ALU.
+
+Este script actúa como un "golden model" de la ALU, calculando los resultados
+esperados para un conjunto de casos de prueba predefinidos (smoke tests) y
+casos generados aleatoriamente.
+
+El resultado se escribe en un archivo header de SystemVerilog (`alu_test_vectors.svh`)
+que es consumido por el testbench (`tb_alu.sv`) para la simulación en Vivado.
+Esto evita duplicar la lógica de la ALU en el testbench y asegura una fuente
+de verdad única para la verificación.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,13 +18,22 @@ from pathlib import Path
 import random
 from typing import Iterable, List, Tuple
 
+# --- Constantes de Configuración ---
+
 DATA_WIDTH = 8
+"""Ancho de bits para los operandos de la ALU."""
+
 OUTPUT_PATH = Path(__file__).resolve().parents[1] / "sv" / "alu_test_vectors.svh"
+"""Ruta del archivo de salida para los vectores de prueba generados."""
+
+# --- Definiciones de Opcodes ---
 
 OPCODE_FAMILY_ARITH = 0b1000
 OPCODE_FAMILY_LOGIC = 0b1001
 OPCODE_FAMILY_SHIFT = 0b0000
 
+# Casos de prueba predefinidos (smoke tests) para cubrir casos esquina y básicos.
+# Formato: (Nombre, Opcode, Operando A, Operando B)
 SMOKE_CASES: List[Tuple[str, int, int, int]] = [
     ("ADD",            0b100000, 0x0A, 0x05),
     ("ADD_WRAP",       0b100000, 0xFF, 0x01),
@@ -35,6 +55,7 @@ SMOKE_CASES: List[Tuple[str, int, int, int]] = [
     ("SRL_WIDE",       0b000010, 0xAA, 0x20),
 ]
 
+# Opcodes utilizados para la generación de pruebas aleatorias.
 RANDOM_OPCODE_POOL = [
     0b100000,
     0b100001,
@@ -50,6 +71,12 @@ RANDOM_OPCODE_POOL = [
 
 @dataclass
 class Vector:
+    """
+    Estructura de datos para un único vector de prueba.
+
+    Almacena las entradas para la ALU y todos los resultados esperados
+    correspondientes (resultado principal, flags y estado de los LEDs).
+    """
     name: str
     opcode: int
     a: int
@@ -65,6 +92,16 @@ class Vector:
 
 
 def _signed(value: int, width: int = DATA_WIDTH) -> int:
+    """
+    Convierte un valor a un entero con signo del ancho de datos especificado.
+
+    Args:
+        value: El valor de entrada sin signo.
+        width: El ancho de bits para la conversión (por defecto DATA_WIDTH).
+
+    Returns:
+        El valor interpretado como un entero con signo en complemento a dos.
+    """
     mask = (1 << width) - 1
     value &= mask
     sign_bit = 1 << (width - 1)
@@ -72,6 +109,25 @@ def _signed(value: int, width: int = DATA_WIDTH) -> int:
 
 
 def evaluate_case(name: str, opcode: int, a: int, b: int, carry_state: int) -> Tuple[Vector, int]:
+    """
+    Evalúa un único caso de prueba y calcula los resultados esperados.
+
+    Esta función emula la lógica completa de la ALU en Python, incluyendo las
+    operaciones aritméticas, lógicas y de desplazamiento, así como el estado
+
+    de los flags y los LEDs.
+
+    Args:
+        name: Nombre descriptivo del caso de prueba.
+        opcode: El código de operación de 6 bits.
+        a: El valor del operando A.
+        b: El valor del operando B.
+        carry_state: El estado del flag de acarreo de la operación anterior.
+
+    Returns:
+        Una tupla que contiene el objeto Vector con todos los resultados
+        calculados y el nuevo estado del flag de acarreo.
+    """
     family = (opcode >> 2) & 0xF
     sel = opcode & 0x3
 
@@ -79,6 +135,7 @@ def evaluate_case(name: str, opcode: int, a: int, b: int, carry_state: int) -> T
     cout = 0
     next_carry = carry_state
 
+    # --- Lógica Aritmética ---
     if family == OPCODE_FAMILY_ARITH:
         if sel == 0:  # ADD
             wide = a + b
@@ -93,6 +150,7 @@ def evaluate_case(name: str, opcode: int, a: int, b: int, carry_state: int) -> T
         result = wide & 0xFF
         cout = (wide >> 8) & 0x1
         next_carry = cout
+    # --- Lógica Booleana ---
     elif family == OPCODE_FAMILY_LOGIC:
         if sel == 0:
             result = a & b
@@ -105,20 +163,23 @@ def evaluate_case(name: str, opcode: int, a: int, b: int, carry_state: int) -> T
         else:
             result = 0
         cout = 0
+    # --- Lógica de Desplazamiento ---
     elif family == OPCODE_FAMILY_SHIFT:
         shift_amt = b & 0xFF
-        if sel == 0b10:
+        if sel == 0b10:  # SRL
             result = (a >> shift_amt) & 0xFF
-        elif sel == 0b11:
+        elif sel == 0b11:  # SRA
             signed_a = _signed(a)
             result = (_signed(signed_a >> shift_amt) & 0xFF)
         else:
             result = 0
         cout = 0
+    # --- Caso por Defecto ---
     else:
         result = 0
         cout = 0
 
+    # --- Cálculo de Flags y LEDs ---
     exp_zero = 1 if result == 0 else 0
     exp_led0 = (result >> 0) & 1
     exp_led1 = (result >> 1) & 1
@@ -144,13 +205,22 @@ def evaluate_case(name: str, opcode: int, a: int, b: int, carry_state: int) -> T
 
 
 def build_vectors() -> Tuple[List[Vector], List[Vector]]:
+    """
+    Construye las listas de vectores de prueba.
+
+    Genera una lista para los casos predefinidos (smoke) y otra para los
+    casos aleatorios, manteniendo el estado del acarreo entre operaciones.
+
+    Returns:
+        Una tupla con dos listas: (vectores_smoke, vectores_aleatorios).
+    """
     vectors_smoke: List[Vector] = []
     carry_state = 0
     for name, opcode, a, b in SMOKE_CASES:
         vec, carry_state = evaluate_case(name, opcode, a, b, carry_state)
         vectors_smoke.append(vec)
 
-    rng = random.Random(42)
+    rng = random.Random(42)  # Semilla fija para resultados reproducibles
     vectors_rand: List[Vector] = []
     for idx in range(200):
         opcode = rng.choice(RANDOM_OPCODE_POOL)
@@ -163,6 +233,15 @@ def build_vectors() -> Tuple[List[Vector], List[Vector]]:
 
 
 def fmt_vec(vec: Vector) -> str:
+    """
+    Formatea un objeto Vector a una cadena con la sintaxis de SystemVerilog.
+
+    Args:
+        vec: El objeto Vector a formatear.
+
+    Returns:
+        Una cadena de texto lista para ser insertada en el archivo .svh.
+    """
     return (
         f"'{{ \"{vec.name}\", 6'h{vec.opcode:02X}, 8'h{vec.a:02X}, 8'h{vec.b:02X}, 8'h{vec.exp_result:02X}, "
         f"1'b{vec.exp_cout}, 1'b{vec.exp_zero}, 1'b{vec.exp_led0}, 1'b{vec.exp_led1}, "
@@ -171,6 +250,13 @@ def fmt_vec(vec: Vector) -> str:
 
 
 def write_include(smoke: Iterable[Vector], random_vecs: Iterable[Vector]) -> None:
+    """
+    Escribe el contenido completo del archivo header de SystemVerilog.
+
+    Args:
+        smoke: Una lista iterable de vectores de prueba predefinidos.
+        random_vecs: Una lista iterable de vectores de prueba aleatorios.
+    """
     lines = []
     lines.append("/* Auto-generated by scripts/gen_test_vectors.py. Do not edit manually. */")
     lines.append("`ifndef ALU_TEST_VECTORS_SVH")
@@ -196,14 +282,14 @@ def write_include(smoke: Iterable[Vector], random_vecs: Iterable[Vector]) -> Non
     for idx, vec in enumerate(smoke_list):
         suffix = "," if idx != len(smoke_list) - 1 else ""
         lines.append(f"    {fmt_vec(vec)}{suffix}")
-    lines.append("};")
+    lines.append("}")
     lines.append("")
     lines.append("testcase_t random_vectors[$] = '{")
     random_list = list(random_vecs)
     for idx, vec in enumerate(random_list):
         suffix = "," if idx != len(random_list) - 1 else ""
         lines.append(f"    {fmt_vec(vec)}{suffix}")
-    lines.append("};")
+    lines.append("}")
     lines.append("")
     lines.append("`endif // ALU_TEST_VECTORS_SVH")
     lines.append("")
@@ -212,10 +298,15 @@ def write_include(smoke: Iterable[Vector], random_vecs: Iterable[Vector]) -> Non
 
 
 def main() -> None:
+    """
+    Punto de entrada principal del script.
+
+    Orquesta la generación de vectores y la escritura del archivo de salida.
+    """
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     smoke, random_vecs = build_vectors()
     write_include(smoke, random_vecs)
-    print(f"Wrote {len(smoke)} smoke vectors and {len(random_vecs)} random vectors to {OUTPUT_PATH}")
+    print(f"Se escribieron {len(smoke)} vectores de prueba predefinidos y {len(random_vecs)} aleatorios en {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

@@ -26,9 +26,9 @@ module alu_top #(
     input load_b,  //!< Señal de control para cargar operando B
     input load_sel,  //!< Señal de control para cargar opcode/selección
 
-    output [DATA_WIDTH-1:0] Result,   //!< Resultado de la operación ALU
-    output                  Cout,     //!< Carry Out
-    output                  Zero,     //!< Zero flag
+    output [DATA_WIDTH-1:0] Result,  //!< Resultado de la operación ALU
+    output                  Cout,    //!< Carry Out
+    output                  Zero,    //!< Zero flag
 
     output result_led0,     //!< LED0: refleja bit 0 del resultado (activo alto)
     output result_led1,     //!< LED1: refleja bit 1 del resultado (activo alto)
@@ -37,25 +37,25 @@ module alu_top #(
     output result_led_r_n   //!< LED Rojo: refleja bit 4 invertido (activo bajo)
 );
 
-  wire [DATA_WIDTH-1:0] reg_a;     //!< Salida del registro A (operando A)
-  wire [DATA_WIDTH-1:0] reg_b;     //!< Salida del registro B (operando B)
-  wire [OPCODE_WIDTH-1:0] reg_sel; //!< Salida del registro de selección (opcode)
+  wire [  DATA_WIDTH-1:0] reg_a;  //!< Salida del registro A (operando A)
+  wire [  DATA_WIDTH-1:0] reg_b;  //!< Salida del registro B (operando B)
+  wire [OPCODE_WIDTH-1:0] reg_sel;  //!< Salida del registro de selección (opcode)
 
   //! @brief Instancia del banco de registros para la carga secuencial de operandos y opcode
   alu_register_bank #(
-                      .DATA_WIDTH(DATA_WIDTH),
-                      .OPCODE_WIDTH(OPCODE_WIDTH)
-                    ) register_bank_inst (
-                      .clk(clk),
-                      .rst(rst),
-                      .data_in(data_in),
-                      .load_a(load_a),
-                      .load_b(load_b),
-                      .load_sel(load_sel),
-                      .reg_a(reg_a),
-                      .reg_b(reg_b),
-                      .reg_sel(reg_sel)
-                    );
+      .DATA_WIDTH  (DATA_WIDTH),
+      .OPCODE_WIDTH(OPCODE_WIDTH)
+  ) register_bank_inst (
+      .clk(clk),
+      .rst(rst),
+      .data_in(data_in),
+      .load_a(load_a),
+      .load_b(load_b),
+      .load_sel(load_sel),
+      .reg_a(reg_a),
+      .reg_b(reg_b),
+      .reg_sel(reg_sel)
+  );
 
   wire [DATA_WIDTH-1:0] core_result;  //!< Resultado del núcleo de la ALU
   wire core_cout;  //!< Carry del núcleo de la ALU

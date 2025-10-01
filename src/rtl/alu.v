@@ -137,11 +137,11 @@ module alu #(
   //! @brief Bloque combinacional: selecciona resultado y flags según la sub-unidad activa
   always @(*) begin
     Result = {DATA_WIDTH{1'b0}};
-    Cout = alu_pkg::FALSE;
+    Cout   = alu_pkg::FALSE;
 
     if (use_arith) begin
       Result = arith_result;
-      Cout = arith_cout;
+      Cout   = arith_cout;
 
     end else if (use_logic) begin
       Result = logic_result;

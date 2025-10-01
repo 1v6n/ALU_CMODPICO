@@ -4,7 +4,7 @@ module tb_alu;
   import alu_pkg::*;
   `include "alu_test_vectors.svh"
 
-  localparam int DATA_WIDTH   = 8;
+  localparam int DATA_WIDTH = 8;
   localparam int OPCODE_WIDTH = 6;
 
   logic clk;
@@ -114,15 +114,16 @@ module tb_alu;
           tc.name, tc.opcode, tc.a, tc.b, result, cout, zero, tc.exp_result, tc.exp_cout,
           tc.exp_zero);
     end else begin
-      $display("[PASS ] %s opcode=%0h A=%0h B=%0h res=%0h cout=%0b zero=%0b", tc.name, tc.opcode, tc.a, tc.b, result, cout, zero);
+      $display("[PASS ] %s opcode=%0h A=%0h B=%0h res=%0h cout=%0b zero=%0b", tc.name, tc.opcode,
+               tc.a, tc.b, result, cout, zero);
     end
 
     if ({result_led0, result_led1, result_led_b_n, result_led_g_n, result_led_r_n} !==
         {tc.exp_led0, tc.exp_led1, tc.exp_led_b_n, tc.exp_led_g_n, tc.exp_led_r_n}) begin
       error_count++;
-      $display("[ERROR] %s LED mismatch got=%b%b%b%b%b exp=%b%b%b%b%b", tc.name, result_led0, result_led1,
-               result_led_b_n, result_led_g_n, result_led_r_n, tc.exp_led0, tc.exp_led1, tc.exp_led_b_n,
-               tc.exp_led_g_n, tc.exp_led_r_n);
+      $display("[ERROR] %s LED mismatch got=%b%b%b%b%b exp=%b%b%b%b%b", tc.name, result_led0,
+               result_led1, result_led_b_n, result_led_g_n, result_led_r_n, tc.exp_led0,
+               tc.exp_led1, tc.exp_led_b_n, tc.exp_led_g_n, tc.exp_led_r_n);
     end
 
   endtask
