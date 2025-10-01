@@ -16,7 +16,7 @@
  * - S <valor>  : Carga opcode/selección (máscara de 5 bits)
  * - W <valor>  : Controla bus de datos sin capturar (para inspección)
  * - R          : Pulso de reset síncrono en el FPGA
- * - P          : Imprime pines de estado (Cout/Zero/Overflow)
+ * - P          : Imprime pines de estado (Cout/Zero)
  * - H          : Ayuda/resumen
  * 
  * @section funcionamiento Funcionamiento
@@ -32,7 +32,6 @@
  * - GP13: Señal de reset (rst, activo alto)
  * - GP14: Carry out (Cout)
  * - GP15: Flag Zero
- * - GP16: Flag Overflow
  * - GP17-GP22, GP26-GP27: Bus de resultado de 8 bits
  */
 
@@ -59,7 +58,6 @@ static constexpr uint8_t PIN_LOAD_SEL  = 12;                          ///< Seña
 static constexpr uint8_t PIN_RST       = 13;                          ///< Señal de reset -> PIO12 (rst, activo alto)
 static constexpr uint8_t PIN_COUT      = 14;                          ///< Carry out -> PIO13 (Cout)
 static constexpr uint8_t PIN_ZERO      = 15;                          ///< Flag Zero -> PIO14 (Zero)
-static constexpr uint8_t PIN_OVERFLOW  = 16;                          ///< Flag Overflow -> PIO40 (Overflow)
 static constexpr uint8_t PIN_RESULT[8] = { 17, 18, 19, 20, 21, 22, 26, 27 }; ///< Bus de resultado 8 bits -> PIO41..PIO48
 /** @} */
 
@@ -162,15 +160,14 @@ void reset_fpga() {
 
 /**
  * @brief Lee los flags de estado del FPGA y los combina en una máscara
- * @return Máscara de 8 bits con los flags de estado (Cout, Zero, Overflow)
+ * @return Máscara de 8 bits con los flags de estado (Cout, Zero)
  * @details Lee los pines de entrada correspondientes a los flags de estado
- * y los empaqueta en un byte: bit 0 = Cout, bit 1 = Zero, bit 2 = Overflow
+ * y los empaqueta en un byte: bit 0 = Cout, bit 1 = Zero
  */
 uint8_t read_status_mask() {
   uint8_t mask = 0;
   mask |= (digitalRead(PIN_COUT)     & 0x1) << 0;
   mask |= (digitalRead(PIN_ZERO)     & 0x1) << 1;
-  mask |= (digitalRead(PIN_OVERFLOW) & 0x1) << 2;
   return mask;
 }
 
@@ -206,8 +203,6 @@ void print_snapshot(Stream& port) {
   port.print((mask >> 0) & 0x1);
   port.print(F(" Zero="));
   port.print((mask >> 1) & 0x1);
-  port.print(F(" Overflow="));
-  port.println((mask >> 2) & 0x1);
 }
 
 /**
@@ -391,7 +386,7 @@ void service_input(CommandInput& input) {
  * @details Configura todos los pines GPIO como entrada o salida según corresponda:
  * - Configura pines del bus de datos como salidas en estado LOW
  * - Configura pines de control (load_a, load_b, load_sel, rst) como salidas en LOW
- * - Configura pines de estado (cout, zero, overflow) como entradas con pull-down
+ * - Configura pines de estado (cout, zero) como entradas con pull-down
  * - Configura pines del bus de resultado como entradas con pull-down
  * - Inicializa comunicaciones seriales (USB y UART)
  * - Muestra mensaje de bienvenida y ayuda
@@ -415,7 +410,6 @@ void setup() {
 
   pinMode(PIN_COUT, INPUT_PULLDOWN);
   pinMode(PIN_ZERO, INPUT_PULLDOWN);
-  pinMode(PIN_OVERFLOW, INPUT_PULLDOWN);
 
   for (uint8_t pin : PIN_RESULT) {
     pinMode(pin, INPUT_PULLDOWN);
