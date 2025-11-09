@@ -15,7 +15,7 @@ module tb_uart_baudrate_gen;
     localparam integer CLOCK_FREQ = 12_000_000;
     localparam integer BAUD_RATE = 9600;
     localparam integer OVERSAMPLE = 16;
-    localparam integer CLOCK_PERIOD_NS = 1_000_000_000 / CLOCK_FREQ; // ~83.33 ns
+    localparam real CLOCK_PERIOD_NS = 1_000_000_000.0 / CLOCK_FREQ; // ~83.33 ns
     
     // Señales del testbench
     logic clk;
