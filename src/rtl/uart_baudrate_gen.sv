@@ -24,7 +24,7 @@ module uart_baudrate_gen #(
 ) (
     //! @brief Señales de entrada
     input  logic clk,        //!< Reloj principal (12 MHz)
-    input  logic rst_n,      //!< Reset asíncrono ACTIVO POR BAJO
+    input  logic rst_n,      //!< Reset síncrono ACTIVO POR BAJO
     
     //! @brief Señales de salida
     output logic baud_tick,     //!< Tick de baudrate (9600 Hz)
