@@ -36,8 +36,9 @@ module uart_baudrate_gen #(
     localparam integer BAUD_X16_DIVISOR = CLOCK_FREQ / (BAUD_RATE * OVERSAMPLE); // ~78
     
     // Ancho de bits necesario para los contadores
-    localparam integer BAUD_COUNTER_WIDTH = $clog2(BAUD_DIVISOR);
-    localparam integer BAUD_X16_COUNTER_WIDTH = $clog2(BAUD_X16_DIVISOR);
+    // Usa $clog2(DIVISOR) para asegurar que se puedan representar valores de 0 a DIVISOR-1
+    localparam integer BAUD_COUNTER_WIDTH = $clog2(BAUD_DIVISOR + 1);
+    localparam integer BAUD_X16_COUNTER_WIDTH = $clog2(BAUD_X16_DIVISOR + 1);
     
     // Registros internos
     logic [BAUD_COUNTER_WIDTH-1:0] baud_counter;
@@ -94,7 +95,6 @@ module uart_baudrate_gen #(
         $display("Baud x16 Counter Width: %0d bits", BAUD_X16_COUNTER_WIDTH);
         $display("Expected Baud Tick Frequency: %0.2f Hz", real'(CLOCK_FREQ) / BAUD_DIVISOR);
         $display("Expected Baud x16 Tick Frequency: %0.2f Hz", real'(CLOCK_FREQ) / BAUD_X16_DIVISOR);
-        $display("=============================================");
     end
 
 endmodule
