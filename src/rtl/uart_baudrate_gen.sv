@@ -27,8 +27,8 @@ module uart_baudrate_gen #(
     input  logic rst_n,      //!< Reset síncrono ACTIVO POR BAJO
     
     //! @brief Señales de salida
-    output logic baud_tick,     //!< Tick de baudrate (9600 Hz)
-    output logic baud_x16_tick  //!< Tick de oversampling (153.6 kHz)
+    output logic baud_tick,     //!< Tick de baudrate
+    output logic baud_x16_tick  //!< Tick de oversampling
 );
 
     // Cálculo automático de los divisores
