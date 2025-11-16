@@ -7,7 +7,17 @@
  * entregan datos registrados con un ciclo de latencia y se permite operar en modo “bypass” cuando
  * coinciden lecturas y escrituras sin hacer un overflow de la cola.
  */
-//! @brief FIFO síncrona 
+/**
+ * @brief FIFO síncrona parametrizable que desacopla productores y consumidores ready/valid.
+ *
+ * El módulo implementa una cola de profundidad configurable en un único dominio de reloj,
+ * con indicadores de lleno/vacío y un contador de ocupación para depuración. Las lecturas
+ * entregan datos registrados con un ciclo de latencia y se permite operar en modo “bypass” cuando
+ * coinciden lecturas y escrituras sin hacer un overflow de la cola.
+ *
+ * @param DATA_WIDTH Ancho de los datos a almacenar.
+ * @param DEPTH Número total de posiciones disponibles (>=2).
+ */
 module sync_fifo #(
     //! @param DATA_WIDTH Ancho de los datos a almacenar.
     parameter int DATA_WIDTH = 8,
