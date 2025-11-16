@@ -97,7 +97,7 @@ module tb_uart_tx;
     
     /**
      * @brief Generador de reloj del sistema
-     * @details Produce un reloj de ~120 MHz (período ≈ 8.33 ns)
+     * @details Produce un reloj de ~12 MHz (período ≈ 83.33 ns)
      */
     initial begin
         clk = 1'b0;
