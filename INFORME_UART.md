@@ -129,6 +129,12 @@ Margen de seguridad = 153.6 / 19.2 = 8x sobre el mínimo teórico
     <img src="imgs/baudrate_gen_rtl.jpg" alt="Baudrate_Generator">
   </a>
 
+En este diseño, tanto el transmisor (TX) como el receptor (RX) utilizan la señal `baud_x16_tick`, un pulso de oversampling a 16× la frecuencia del baudrate. Si bien el TX podría haberse implementado con `baud_tick` (1×), ya que siempre debe esperar 16 ciclos por bit por el oversampling, se decidió emplear `baud_x16_tick` para mantener coherencia con el RX y seguir el enfoque de la bibliografía.
+
+En contraste, el RX sí requiere estrictamente oversampling ×16: su FSM muestrea el bit de start en el tick 8 y los bits de datos, paridad y stop cada 16 ticks completos, lo que permite sincronización precisa y tolerancia a variaciones de baudrate.
+
+En síntesis, aunque ambos módulos usan `baud_x16_tick`, en el TX se hace por uniformidad, mientras que en el RX es una necesidad funcional. La existencia simultánea de baud_tick y baud_x16_tick preserva flexibilidad en el diseño.
+
 ---
 
 ## Módulo Transmisor (TX)
@@ -193,7 +199,7 @@ Este mecanismo garantiza:
 
 > Esta arquitectura separa claramente las responsabilidades: el baudrate generator proporciona la base temporal precisa, mientras que el TX implementa la lógica de serialización y protocolo.
 
-### 2.3 Justificación del Latch Interno para tx_start
+### 2.2 Justificación del Latch Interno para tx_start
 
 #### **Problema: Uso Directo de tx_start desde Lógica Externa**
 
@@ -235,9 +241,7 @@ El pulso de 1 ciclo se extiende automáticamente hasta el próximo baud_tick.
 - Durante transmisión activa, pulsos por ruido o interferencia son ignorados
 - Comportamiento determinista y predecible
 
-### 2.4 Interfaz con la FIFO — write_o y read_en
-
-#### **Arquitectura de Integración con FIFO**
+### 2.3 Interfaz con la FIFO — write_o y read_en
 
 En sistemas que requieren buffering de múltiples transmisiones (como cuando la ALU genera resultados más rápido que la capacidad del UART), se introduce una FIFO entre el productor de datos (ALU) y el transmisor UART. Esta arquitectura desacopla temporalmente ambos módulos y maximiza el throughput del sistema.
 
@@ -292,7 +296,7 @@ write_o  read_en   state     Acción
 - **Backpressure implícito**: Si FIFO está vacía (write_o=0), TX espera en IDLE
 - **Zero bubble**: Transiciones consecutivas sin ciclos muertos si FIFO siempre tiene datos
 
-### 2.5 Comparación: Latch vs. Modo FIFO
+### 2.4 Comparación: Latch vs. Modo FIFO
 
 | **Aspecto / Característica** | **Modo Pulso / Latch (tx_start)**                          | **Modo FIFO (write_o / read_en)**                       |
 | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------- |
@@ -460,6 +464,335 @@ Con `ENABLE_FIFO_MODE=1`, testbench ejecuta **6 tests adicionales** por modo de 
 <p align="center">
   <a>
     <img src="imgs/tx_rtl.jpg" alt="Transmitter">
+  </a>
+
+---
+
+## 3. Módulo Receptor (RX)
+
+### 3.1 Importancia del Receptor UART y Relación con Baudrate Generator
+
+El módulo receptor UART (RX) constituye el componente crítico responsable de la deserialización y reconstrucción de datos serie asíncronos, convirtiéndolos en palabras paralelas procesables por la lógica digital interna. Su función principal consiste en detectar, sincronizar y validar frames UART entrantes, extrayendo los bits de datos y verificando su integridad mediante paridad y control de trama.
+
+#### **Desafíos Fundamentales del Receptor UART**
+
+A diferencia del transmisor, que opera en un entorno controlado y predecible, el receptor debe resolver múltiples problemas de sincronización y detección:
+
+**1. Detección Asíncrona del START Bit**
+- La línea RX permanece en estado IDLE (1 lógico) indefinidamente
+- El inicio de transmisión se señaliza mediante una transición 1→0 asíncrona
+- El receptor no tiene conocimiento previo de cuándo llegará el próximo frame
+- Debe detectar el flanco de bajada sin depender de baud_tick
+
+**2. Sincronización Temporal con Transmisor Remoto**
+- El transmisor y receptor operan con relojes independientes
+- Pueden existir diferencias de frecuencia de hasta ±3% (tolerancia UART estándar)
+- Requiere mecanismo de refase para alinear muestreo con centro de cada bit
+- La sincronización se pierde entre frames y debe restablecerse con cada START
+
+**3. Reconstrucción de Datos LSB-First**
+- Los bits llegan serializados en orden LSB→MSB
+- Deben reconstruirse en un registro de desplazamiento
+- Timing crítico: muestrear cada bit exactamente en su centro
+
+**4. Validación de Integridad**
+- Verificar paridad calculada sobre bits de datos
+- Validar bit de STOP para detectar errores de sincronización
+- Detectar frames malformados por ruido o desincronización
+
+#### **Dependencia Crítica del Baudrate Generator**
+
+El receptor UART depende **estrictamente** del oversampling 16× proporcionado por el baudrate generator.
+
+**Proceso de Sincronización en Dos Fases:**
+
+**Fase 1: Detección y Validación del START Bit**
+```
+Detección flanco 1→0 (asíncrona, sin baud_tick)
+         ↓
+Esperar 8 ticks de baud_x16_tick (OVERSAMPLE/2)
+         ↓
+Muestrear rx en el CENTRO del bit de START
+         ↓
+Validar que rx = 0 (confirma START válido)
+```
+
+> **Detección de Falsos Positivos:** Si en el tick 8 el valor es 1 (no 0), se detecta que el flanco fue causado por ruido, no por un START legítimo.
+
+**Fase 2: Muestreo de Bits de Datos, Paridad y STOP**
+```
+Para cada bit subsecuente:
+    Contar 16 ticks completos (OVERSAMPLE)
+         ↓
+    Muestrear rx en el último tick (que debido a la fase 1, coincide con el centro del bit)
+         ↓
+    Almacenar valor en shifter o registros de control
+```
+
+### 3.2 Mecanismo de Refase y Sincronización: La Clave del START Bit
+
+El proceso de refase implementado en el estado S_START constituye el mecanismo fundamental que permite al receptor sincronizarse temporalmente con el transmisor a pesar de operar con relojes independientes.
+
+#### **Problema: Desincronización entre Transmisor y Receptor**
+
+En sistemas asíncronos, el receptor no tiene forma de predecir el instante exacto en que comenzará la transmisión:
+
+El receptor detecta el flanco 1→0 en un instante arbitrario dentro del bit de START. Si comenzara a contar inmediatamente 16 ticks, muestrearía en un punto impredecible del bit, posiblemente cerca de una transición donde el valor es inestable.
+
+#### **Solución: Refase Mediante Muestreo Mid-Bit**
+
+El algoritmo de refase implementado resuelve este problema. El muestreo inicial en el tick 8 del bit de START no es arbitrario, sino que responde a principios fundamentales de procesamiento de señales:
+
+1. **Refase Temporal:** Al hacer `next_os_count = '0` después del muestreo mid-bit en tick 8 la primera vez, el receptor establece un nuevo punto de referencia temporal. Los próximos bits (DATA, PARITY, STOP) se muestrearán cada 16 ticks exactos a partir de este refase, garantizando que todos los muestreos ocurran en el centro de sus respectivos bits.
+
+2. **Máxima Tolerancia a Jitter:** El centro del bit es el punto de máxima estabilidad, equidistante de las transiciones de bit anterior y posterior.
+
+3. **Tolerancia a Variaciones de Frecuencia:** Incluso con ±3% de error entre relojes, el muestreo mid-bit garantiza captura correcta durante todo el frame (10-11 bits).
+
+### 3.3 Reconstrucción LSB-First en el Shifter
+
+Los datos UART se transmiten con el bit menos significativo primero (LSB-first). El receptor debe reconstruir el byte original mediante un registro de desplazamiento.
+
+**Copia a data_reg para Cálculo de Paridad:**
+
+Al completar la recepción de todos los bits de datos, se copia el shifter completo a `data_reg`. Este registro se usa posteriormente para:
+1. Calcular la paridad esperada (en estado S_PARITY)
+2. Presentar el dato final en `dout` (en estado S_DONE)
+
+Esta arquitectura separa las responsabilidades:
+- `shifter`: registro de desplazamiento temporal durante recepción
+- `data_reg`: almacenamiento estable del byte completo para procesamiento
+- `dout`: salida registrada presentada al sistema superior
+
+### 3.4 Verificación de Paridad y Detección de Errores
+
+#### **Cálculo del Bit de Paridad Esperado**
+
+El módulo receptor implementa cálculo combinacional de paridad idéntico al transmisor, pero con propósito de verificación en lugar de generación:
+
+#### **Utilidades de la Paridad en Sistemas UART**
+
+La paridad simple puede detectar:
+- **Errores de 1 bit:** Cualquier cambio de un solo bit altera la paridad
+**Errores impares:** 3, 5, 7... bits alterados cambian la paridad
+
+**Limitaciones de la Paridad:**
+- No puede **corregir** errores, solo detectarlos
+- No detecta errores en múltiplos pares de bits. 2, 4, 6... bits alterados pueden no detectarse (paridad permanece igual)
+- Overhead temporal: +1 bit por frame (~9-10% más tiempo de transmisión)
+
+**¿Cuándo Usar Paridad?**
+
+| Escenario | Recomendación |
+|-----------|---------------|
+| Líneas con ruido eléctrico | **Sí** - Detecta errores de transmisión |
+| Comunicación crítica (safety) | **No** - Usar CRC o códigos más robustos |
+| Sistemas de bajo consumo | **Depende** - Overhead de 1 bit (9-10% más tiempo) |
+| Debugging/Desarrollo | **Sí** - Ayuda a identificar problemas de hardware |
+| Baudrates altos (>115200) | **Sí** - Mayor susceptibilidad a errores de timing |
+
+#### **Detección de Errores de Frame**
+
+El error de frame se detecta cuando el bit de STOP no tiene el valor esperado (1 lógico):
+
+**Causas Típicas de Frame Error:**
+
+1. **Desincronización de Baudrate:**
+   - Diferencia >3% entre relojes de TX y RX
+   - Acumulación de error de timing a lo largo del frame
+   - Muestreo del STOP en transición en lugar de centro
+
+2. **Ruido en la Línea:**
+   - Picos de voltaje inducidos por EMI
+   - Glitches que corrompen el bit de STOP
+   - Atenuación de señal en cables largos
+
+3. **START Prematuro:**
+   - Transmisor inicia nuevo frame antes de completar STOP
+   - Viola temporización del protocolo UART
+   - Indica problema en FSM del transmisor
+
+4. **Línea RX Atascada en 0:**
+   - Cortocircuito a GND
+   - Falla de hardware en driver del transmisor
+   - Cable desconectado (pull-down activo)
+
+#### **Importancia de los Flags de Error en Sistemas Reales**
+
+**Escenarios de Uso de parity_error y frame_error:**
+
+1. **Protocolos de Capa Superior con Retransmisión:** Aplicación detecta error → solicita retransmisión del frame
+
+2. **Diagnóstico de Problemas de Hardware:**
+   
+   - frame_error frecuente → desincronización de baudrate
+   - parity_error esporádico → ruido eléctrico en la línea
+   - ambos simultáneos → cable defectuoso o desconectado
+
+3. **Sistemas Safety-Critical:**
+
+   - Cualquier error → descarta frame y activa alarma
+   - Ejemplo: Comunicación en sistemas médicos o automotrices
+
+4. **Monitoreo de Calidad de Enlace:**
+
+   - Contador de errores / frames totales = BER (Bit Error Rate)
+   - BER > umbral → cambiar a baudrate más bajo o revisar hardware
+
+### 3.5 Tolerancia a Variaciones de Frecuencia: Análisis Cuantitativo
+
+La especificación UART estándar permite hasta **±3% de diferencia** entre los relojes del transmisor y receptor. El oversampling 16× proporciona margen suficiente para tolerar esta variación:
+
+**Cálculo de Error Acumulado:**
+
+Supongamos receptor 3% más lento que transmisor (peor caso):
+```
+Por cada bit transmitido:
+    TX: 16 ticks nominales
+    RX: 16.48 ticks reales (16 × 1.03)
+    Error por bit: 0.48 ticks
+
+Frame de 10 bits (NONE):
+    Error acumulado: 10 × 0.48 = 4.8 ticks
+
+Frame de 11 bits (EVEN/ODD):
+    Error acumulado: 11 × 0.48 = 5.28 ticks
+```
+
+**Margen de Seguridad:**
+
+El muestreo mid-bit proporciona ventana de ±8 ticks (centro del bit ± OVERSAMPLE/2):
+```
+Error máximo tolerable: ±8 ticks
+Error real (11 bits, ±3%): ±5.28 ticks
+Factor de seguridad: 8 / 5.28 ≈ 1.5× (margen del 50%)
+```
+
+Esto explica por qué UART tolera ±3% de error: el oversampling 16× con muestreo mid-bit proporciona 1.5× más margen del necesario, garantizando operación robusta incluso en condiciones límite.
+
+**Comparación con Oversampling Menor:**
+
+| Factor | Ventana Muestreo | Error Máx (11 bits, 3%) | Margen | Viabilidad |
+|--------|------------------|-------------------------|--------|------------|
+| 8× | ±4 ticks | ±5.28 ticks | **Insuficiente** | ✗ No tolera 3% |
+| 16× | ±8 ticks | ±5.28 ticks | 1.5× | ✓ **ÓPTIMO** |
+| 32× | ±16 ticks | ±5.28 ticks | 3× | ✓ Excesivo (overhead) |
+
+El oversampling 16× representa el **punto óptimo** entre robustez y eficiencia de recursos.
+
+### 3.6 Flujo Detallado de la Máquina de Estados Finitos (FSM)
+
+La FSM del receptor UART implementa un protocolo de recepción secuencial que maneja la detección, sincronización, deserialización y validación de frames UART entrantes.
+
+#### **Diagrama de Máquina de Estados Algorítmica**
+
+<p align="center">
+  <a>
+    <img src="imgs/rx_asmdp.jpg" alt="Receiver ASMDP">
+  </a>
+
+### 3.7 Verificación Exhaustiva: Testbench del Receptor UART
+
+#### **Arquitectura de Verificación Basada en Vectores Python**
+
+La verificación del módulo receptor UART se implementó mediante una estrategia de golden model, donde un script Python (`gen_uart_rx_vectors.py`) genera vectores de prueba que sirven como referencia para validar el comportamiento del DUT (Device Under Test). Se sigue la misma filosofía que con el módulo transmisor UART.
+
+#### **Categorías de Vectores de Prueba**
+
+El generador Python produce **50 vectores totales** distribuidos en tres modos de paridad (NONE, EVEN, ODD) y tres categorías de casos:
+
+**1. Smoke Tests (6 Vectores por Modo)**
+
+Casos básicos predefinidos para validación rápida:
+- `BASIC_1F` (0x1F): Patrón con bits alternados en nibble bajo
+- `ALL_ZERO` (0x00): Todos los bits en 0
+- `MSB_SET` (0x80): Solo MSB activo
+- `ALL_ONES` (0xFF): Todos los bits en 1
+- `ALT_55` (0x55): Patrón alternado 01010101
+- `ALT_AA` (0xAA): Patrón alternado 10101010
+
+Estos casos validan:
+- Reconstrucción correcta de patrones conocidos
+- Muestreo LSB-first funcional
+- Cálculo correcto de paridad para casos extremos
+
+**2. Random Tests (9 Vectores por Modo)**
+
+Casos generados pseudoaleatoriamente con **semillas fijas** para reproducibilidad:
+
+Ventajas:
+- Cobertura del espacio de datos (0-255)
+- Reproducibilidad entre ejecuciones (mismos vectores siempre)
+- Validación de casos no anticipados en smoke tests
+
+**3. Error Tests (1-2 Vectores por Modo)**
+
+Casos con errores intencionales para validar detección:
+
+**a) Frame Error (Todos los Modos):**
+```python
+data_ferr = 0x99 # STOP bit forzado a 0 en lugar de 1
+```
+Valida que `frame_error` flag se active correctamente.
+
+**b) Parity Error (Solo EVEN/ODD):**
+```python
+data_perr = 0x42 # Bit de paridad invertido intencionalmente
+```
+Valida que `parity_error` flag se active correctamente.
+
+**Distribución Total de Vectores:**
+- **NONE:** 6 smoke + 9 random + 1 frame_err = **16 vectores**
+- **EVEN:** 6 smoke + 9 random + 1 parity_err + 1 frame_err = **17 vectores**
+- **ODD:** 6 smoke + 9 random + 1 parity_err + 1 frame_err = **17 vectores**
+- **TOTAL:** 16 + 17 + 17 = **50 vectores**
+
+#### **Mecánica del Testbench: Inyección Serial y Captura de Respuesta**
+
+El testbench implementa dos componentes críticos:
+
+**1. Tarea inject_frame: Inyección Bit-a-Bit con Timing Preciso:** Esta tarea simula un transmisor UART perfecto, replicando el timing exacto que el receptor espera.
+
+**2. Monitor de Captura Asíncrono con Always Block:** el testbench emplea un always block que captura el pulso en paralelo con la inyección
+
+#### **Validación Multi-Aspecto por Vector**
+
+Para cada vector de prueba, el testbench valida:
+
+**1. Reconstrucción Correcta del Byte**
+
+**2. Detección Correcta de Error de Paridad**
+
+**3. Detección Correcta de Error de Frame:**
+
+**4. Generación de Pulso rx_done_tick:**
+
+### 3.8 Comparación Transmisor (TX) vs Receptor (RX)
+
+Ambos módulos comparten principios arquitectónicos fundamentales pero difieren en sus desafíos y mecanismos de operación:
+
+#### **Diferencias Fundamentales**
+
+| Característica | TX (Generador de Bits) | RX (Reconstructor de Bits) |
+|----------------|------------------------|----------------------------|
+| **Dirección de flujo** | Paralelo → Serie | Serie → Paralelo |
+| **Sincronización** | Controlada | Asíncrona (detectar START) |
+| **Detección de errores** | No genera (asume datos válidos) | **Debe detectar** (parity_error, frame_error) |
+| **Estado IDLE** | Espera tx_start con latch o señal en alto de FIFO | **Monitoreo continuo** de línea RX |
+| **Criticidad de mid-bit** | No crítico (genera bits completos) | **Crítico** (único punto de muestreo estable) |
+
+#### **Complementariedad en el Sistema UART Full-Duplex**
+
+- **TX:** Serializa comandos y resultados de la ALU para transmisión remota
+- **RX:** Deserializa comandos recibidos para control de la ALU local
+
+En un sistema bidireccional completo, cada dispositivo tiene un TX y un RX operando simultáneamente, permitiendo comunicación full-duplex asíncrona.
+
+### 3.9 Diagrama RTL del Módulo UART RX
+
+<p align="center">
+  <a>
+    <img src="imgs/rx_rtl.jpg" alt="Receiver">
   </a>
 
 ---
