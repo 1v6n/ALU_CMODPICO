@@ -39,16 +39,14 @@ skinparam arrow {
 ' ==== UART RECEPTION ====
 package "UART Reception" {
   [UART RX\n«uart»] as UART_RX
-  rectangle "UART Packet Decoder\n«decoder»\n\nInputs:\n  • rx_byte(8), rx_valid\nOutputs:\n  • cmd_word(16), cmd_valid\nContracts:\n  • fifo_write_cmd(cmd_word)\n  • framing: [STX][CMD][DATA][ETX]" as DEC #0f2332
-  [Command FIFO\n«fifo»] as FIFO_CMD
+  rectangle "UART Packet Decoder\n«decoder»\n\nInputs:\n  • rx_byte(8), rx_valid\nOutputs:\n  • alu_data(8)\n  • load_a/load_b/load_sel pulses\n  • exec_pulse\nNotas:\n  • framing [STX][CMD][DATA][ETX]" as DEC #0f2332
 
   UART_RX -down-> DEC : uart_read_byte()
-  DEC -down-> FIFO_CMD : fifo_write_cmd()
 }
 
 ' ==== CORE ====
 package "Core Application Logic" {
-  rectangle "Main Control Block\n«fsm»\n\nInputs:\n  • cmd_word(16), cmd_valid\nOutputs:\n  • tx_data(8), tx_write_en\nContracts:\n  • fifo_read_cmd()\n  • fifo_write_tx()" as CORE #0f2332
+  rectangle "Main Control Block\n«fsm»\n\nInputs:\n  • alu_data(8)\n  • load_a/load_b/load_sel\n  • exec_pulse\nOutputs:\n  • tx_data(8), tx_write_en\nContracts:\n  • controla alu_top\n  • fifo_write_tx()" as CORE #0f2332
 }
 
 ' ==== UART TRANSMISSION ====
@@ -60,7 +58,7 @@ package "UART Transmission" {
 }
 
 ' ==== CONNECTIONS (VERTICAL PIPELINE) ====
-FIFO_CMD -down-> CORE : fifo_read_cmd()
+DEC -down-> CORE : load/data hacia ALU
 CORE -down-> FIFO_TX : fifo_write_tx()
 
 ' Notes kept minimal so you can explain in Markdown below

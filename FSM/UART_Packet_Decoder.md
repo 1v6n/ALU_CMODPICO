@@ -40,7 +40,7 @@ S1 --> S0 <<Error>> : invalid cmd / decoder_reset()
 
 S2 --> S3 : data ∈ [0x00..0xFF] / store_data(data)
 
-S3 --> S0 : byte == 0x03 (ETX)\n/ fifo_write_cmd( (cmd<<8) | data )
+S3 --> S0 : byte == 0x03 (ETX)\n/ apply_load(cmd,data)
 S3 --> S0 <<Error>> : other / decoder_reset()
 
 @enduml
