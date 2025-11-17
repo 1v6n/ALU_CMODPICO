@@ -286,6 +286,15 @@ module tb_uart_tx;
      * @details Similar a capture_and_verify, pero inicia la transmisión mediante
      * la señal write_o (dato disponible en FIFO) en lugar de tx_start. Verifica que
      * el DUT pulse read_en para consumir el dato antes de iniciar la transmisión.
+     * 
+     * IMPORTANTE: Con el estado S_LOAD agregado en uart_tx, hay 1 ciclo adicional
+     * de latencia entre read_en y el inicio de transmisión (START bit). Esto permite
+     * que la FIFO entregue el dato válido antes de que uart_tx lo capture.
+     *
+     * Timing esperado (con S_LOAD):
+     * - Ciclo N:   TB activa write_o=1, uart_tx en S_IDLE
+     * - Ciclo N+1: uart_tx genera read_en=1, transiciona a S_LOAD
+     * - Ciclo N+2: uart_tx captura din, transiciona a S_START, tx→0 (START bit)
      *
      * @param exp_frame Frame esperado (10 u 11 bits según modo)
      * @param frame_bits Cantidad de bits del frame (10 para NONE, 11 para EVEN/ODD)
@@ -315,7 +324,6 @@ module tb_uart_tx;
         // Esperar idle y activar interfaz FIFO
         wait (tx == 1'b1);
         @(posedge clk);
-        frame_start_cycle = total_cycles;
         write_o = 1'b1; // Señal: dato disponible en FIFO
         
         // Esperar handshake: DUT debe pulsar read_en para consumir
@@ -323,8 +331,13 @@ module tb_uart_tx;
         @(posedge clk);
         write_o = 1'b0; // Desactivar tras consumo
 
+        // Esperar 1 ciclo adicional para estado S_LOAD
+        // (uart_tx necesita este tiempo para que sync_fifo entregue dato válido)
+        @(posedge clk);
+
         // Esperar inicio de transmisión (bit START)
         wait (tx == 1'b0);
+        frame_start_cycle = total_cycles;
 
         // Muestreo mid-bit (mismo algoritmo que captura normal)
         os_count = 0;
@@ -517,6 +530,10 @@ module tb_uart_tx;
          * @brief Verifica funcionamiento con interfaz FIFO externa
          * @details Ejecuta un subconjunto de casos (3 smoke + 3 random) usando
          * write_o/read_en en lugar de tx_start para iniciar transmisiones.
+         * 
+         * Nota: El estado S_LOAD en uart_tx agrega ~1 ciclo de latencia adicional
+         * para sincronizar con la latencia de sync_fifo. Esto es correcto y esperado.
+         * El testbench espera este ciclo adicional antes de comenzar la captura.
          */
         if (ENABLE_FIFO_MODE) begin
             integer j;

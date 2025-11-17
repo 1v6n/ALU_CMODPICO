@@ -275,12 +275,16 @@ write_o  read_en   state     Acción
 ───────────────────────────────────────────────────────────────
 0        0         S_IDLE    TX esperando
 1        0         S_IDLE    FIFO ofrece dato (byte de datos)
-1        1         S_START   TX acepta frame 1, genera read_en
+1        1         S_LOAD    TX solicita dato, genera read_en
+1        0         S_LOAD    FIFO registra data_out (latencia 1 ciclo)
+1        0         S_START   TX captura din válido, inicia frame 1
 1        0         S_DATA    Transmitiendo frame 1...
 ...
 1        0         S_DONE    Frame 1 completo
 1        0         S_IDLE    TX regresa a IDLE brevemente
-1        1         S_START   TX acepta frame 2 (flags), genera read_en
+1        1         S_LOAD    TX solicita frame 2 (flags), genera read_en
+1        0         S_LOAD    FIFO registra data_out con flags
+1        0         S_START   TX captura flags, inicia frame 2
 1        0         S_DATA    Transmitiendo frame 2...
 ...
 1        0         S_DONE    Frame 2 completo (operación ALU finalizada)
@@ -291,17 +295,27 @@ write_o  read_en   state     Acción
 1. Byte de datos (resultado de la ALU)
 2. Byte de flags (ZERO en bit 0, CARRY en bit 1, resto en 0)
 
+**Sincronización con FIFO (Estado S_LOAD):**
+
+El módulo sync_fifo tiene una latencia de **1 ciclo de reloj** entre la señal `read_en` y la disponibilidad del dato en `data_out`. Para compensar esta latencia, el módulo TX implementa el estado **S_LOAD**:
+
+- **Ciclo N**: TX en S_IDLE detecta `write_o=1`, genera `read_en=1`, transiciona a S_LOAD
+- **Ciclo N+1**: FIFO registra `data_out` con el dato válido, TX permanece en S_LOAD (espera)
+- **Ciclo N+2**: TX captura `din` (ahora válido desde FIFO), carga shifter/data_reg, transiciona a S_START
+
+Este estado adicional garantiza que el TX **siempre capture el dato correcto** de la FIFO antes de iniciar la transmisión serie, evitando errores de sincronización.
+
 **Características clave:**
 - **No bloqueante**: TX continúa transmitiendo mientras FIFO tenga datos
 - **Backpressure implícito**: Si FIFO está vacía (write_o=0), TX espera en IDLE
-- **Zero bubble**: Transiciones consecutivas sin ciclos muertos si FIFO siempre tiene datos
+- **Sincronización automática**: S_LOAD compensa latencia de FIFO sin intervención externa
 
 ### 2.4 Comparación: Latch vs. Modo FIFO
 
 | **Aspecto / Característica** | **Modo Pulso / Latch (tx_start)**                          | **Modo FIFO (write_o / read_en)**                       |
 | ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------- |
-| **Iniciación**               | Pulso de 1 ciclo, capturado por latch interno              | write_o en nivel; TX toma dato cuando está listo        |
-| **Latencia inicial**         | Hasta baud_tick, depende del oversampling     | Inmediata: TX toma el siguiente dato disponible         |
+| **Iniciación**               | Pulso de 1 ciclo, capturado por latch interno              | write_o en nivel; TX solicita dato con read_en        |
+| **Latencia inicial**         | Hasta baud_tick, depende del oversampling     | +1 ciclo por estado S_LOAD (sincronización con FIFO)         |
 | **Robustez a glitches**      | Alta (el latch filtra pulsos breves)                       | Muy alta (handshake explícito write_o/read_en)          |
 | **Consumo del dato**         | Automático al detectar el pulso                            | Confirmado con read_en por parte del TX                 |
 | **Throughput sostenido**     | Limitado: 2 frames por solicitud externa (datos + flags)   | Máximo: permite streaming continuo sin gaps             |
@@ -356,6 +370,8 @@ La FSM del transmisor UART implementa el protocolo de serialización mediante lo
     <img src="imgs/tx_asmdp.jpg" alt="Tx_FSM">
   </a>
 
+# ACTUALIZAR
+
 #### **Tablas de Temporización**
 
 **Duración Teórica de un Frame Individual por Modo de Paridad**
@@ -371,11 +387,14 @@ La FSM del transmisor UART implementa el protocolo de serialización mediante lo
 | Estado | Bits | Ticks Baud | % Frame | Tiempo @ 9600 bps |
 |--------|------|------------|---------|-------------------|
 | IDLE | - | Variable | - | Variable |
+| LOAD* | - | 0 (1 ciclo clk) | - | 83.3 ns @ 12 MHz |
 | START | 1 | 16 | 10% | 104.17 μs |
 | DATA | 8 | 128 | 80% | 833.33 μs |
 | STOP | 1 | 16 | 10% | 104.17 μs |
 | DONE | - | 1 | <1% | 6.51 μs |
 | **TOTAL** | **10** | **161** | **100%** | **1.048 ms** |
+
+> *S_LOAD solo se ejecuta en modo FIFO (write_o). Opera con clk del sistema, no con baud_tick._
 
 **Duración Total por Operación ALU (2 Frames):** Para completar una operación ALU, la FSM ejecuta esta secuencia **dos veces consecutivas** (frame de datos + frame de flags).
 
@@ -794,5 +813,160 @@ En un sistema bidireccional completo, cada dispositivo tiene un TX y un RX opera
   <a>
     <img src="imgs/rx_rtl.jpg" alt="Receiver">
   </a>
+
+---
+
+## 4. Módulo Integrador: uart_top
+
+### 4.1 Arquitectura del Sistema UART Completo
+
+El módulo `uart_top` constituye el nivel jerárquico superior que integra todos los componentes desarrollados previamente en un sistema UART completo y funcional. Su diseño implementa una arquitectura desacoplada mediante FIFOs síncronas que separan los dominios de velocidad entre la lógica de usuario (ALU) y la comunicación serie (UART).
+
+#### **Componentes Integrados**
+
+El sistema se compone de seis módulos interconectados:
+
+1. **uart_baudrate_gen**: Generador de temporización base
+   - Produce señales `baud_tick` (×1) y `baud_x16_tick` (×16)
+   - Configurable vía parámetros CLOCK_FREQ y BAUD_RATE
+   - Entrada común para TX y RX
+
+2. **uart_rx**: Receptor serie
+   - Deserializa frames UART desde PC
+   - Detecta errores de paridad y frame
+   - Escribe datos válidos en FIFO_RX con control de flujo
+
+3. **sync_fifo (FIFO_RX)**: Buffer de recepción
+   - Almacena frames recibidos antes de procesamiento por ALU
+   - Profundidad configurable (parámetro FIFO_DEPTH)
+   - Señales de estado: empty, full, level
+
+4. **sync_fifo (FIFO_TX)**: Buffer de transmisión
+   - Almacena frames generados por ALU antes de transmisión
+   - Permite escrituras no bloqueantes desde ALU
+   - Alimenta uart_tx automáticamente
+
+5. **uart_tx**: Transmisor serie
+   - Serializa datos desde FIFO_TX hacia PC
+   - Opera en modo FIFO (write_o/read_en)
+   - Estado S_LOAD para sincronización con FIFO
+
+6. **uart_top**: Módulo integrador (este nivel)
+   - Interconecta todos los componentes
+   - Gestión centralizada de reset
+   - Interfaz limpia hacia ALU y líneas físicas
+
+### 4.2 Flujos de Datos y Control de Flujo
+
+#### **Flujo de Recepción (PC → ALU) con Backpressure**
+
+El flujo de recepción implementa un mecanismo robusto de control de flujo que previene pérdida de datos cuando la FIFO se satura:
+
+**Características Clave del Control de Flujo RX:**
+
+1. **No Bloqueante:** uart_rx NUNCA se detiene, incluso si FIFO está llena
+   - Continúa recepción de frames subsecuentes
+   - Pérdida de datos es explícita (frame descartado)
+
+2. **Responsabilidad de Dimensionamiento:** 
+   - Profundidad de FIFO_RX debe dimensionarse según:
+     * Tasa de recepción: baudrate / (bits por frame)
+     * Tasa de procesamiento: frecuencia de lectura por ALU
+     * Latencia ALU: tiempo entre read_en consecutivos
+
+3. **Señalización de Errores Independiente:**
+   - `parity_error` y `frame_error` se activan INDEPENDIENTEMENTE del estado de FIFO
+   - Frames con error también consumen espacio en FIFO (si hay espacio)
+   - ALU debe verificar flags de error antes de procesar datos
+
+#### **Flujo de Transmisión (ALU → PC) con Buffering**
+
+El flujo de transmisión desacopla completamente la generación de datos por la ALU de la velocidad del baudrate UART:
+
+**Ventajas del Buffering con FIFO_TX:**
+
+1. **Escrituras No Bloqueantes:**
+   - ALU puede escribir ráfagas de datos sin esperar transmisión
+   - FIFO absorbe diferencia de velocidad (ALU rápida vs UART lenta)
+
+2. **Throughput Máximo:**
+   - Si FIFO_TX tiene datos, uart_tx transmite back-to-back
+   - No hay gaps entre frames consecutivos (excepto tiempo S_IDLE→S_LOAD→S_START)
+
+### 4.3 Parámetros Configurables y Flexibilidad del Diseño
+
+El módulo uart_top está completamente parametrizado, permitiendo adaptación a diferentes aplicaciones sin modificar código RTL:
+
+#### **Tabla de Parámetros**
+
+| Parámetro | Tipo | Default | Rango Típico | Descripción |
+|-----------|------|---------|--------------|-------------|
+| DATA_BITS | int | 8 | 5-9 | Cantidad de bits de datos UART |
+| PARITY | parity_t | PARITY_NONE | NONE/EVEN/ODD | Modo de verificación de paridad |
+| OVERSAMPLE | int | 16 | 8/16/32 | Factor de oversampling RX |
+| CLOCK_FREQ | int | 12_000_000 | Variable | Frecuencia del reloj del sistema (Hz) |
+| BAUD_RATE | int | 9600 | 300-115200 | Velocidad de transmisión (bps) |
+| FIFO_DEPTH | int | 32 | 4-256 | Profundidad de FIFOs RX y TX |
+
+### 4.4 Verificación del Sistema Completo: uart_top_tb
+
+#### **Estrategia de Verificación Loopback**
+
+La testbench `uart_top_tb.sv` implementa una prueba de loopback completa que valida el sistema end-to-end.
+
+**Flujo de la Prueba:**
+
+1. **DRIVER_RX** (proceso fork 1):
+   - Genera secuencia de bytes de prueba: `{0x55, 0xA3, 0x00, 0xFF}`
+   - Transmite cada byte serialmente por línea `rx` usando `uart_send_byte`
+   - Timing preciso: START + 8 DATA + STOP a velocidad del baudrate
+
+2. **ALU Emulada** (siempre activa):
+   - FSM de 2 estados: S_IDLE, S_WAIT_DATA
+   - En S_IDLE: Si `!rx_fifo_empty && !tx_fifo_full` → genera `read_en_rx_top`, transiciona a S_WAIT_DATA
+   - En S_WAIT_DATA: Espera `data_valid_rx`, copia `data_out_rx` a `tx_data_in`, genera `write_en_tx_top`
+   - Efecto neto: **loopback perfecto** (RX → TX sin modificación)
+
+3. **MONITOR_TX** (proceso fork 2):
+   - Espera frames en línea `tx`
+   - Detecta START bit (flanco 1→0)
+   - Muestrea 8 bits de datos en el centro de cada período
+   - Almacena bytes recibidos en arreglo `rx_vec[]`
+
+4. **Comparación Final**:
+   - Compara `tx_vec[]` (enviado por RX) vs `rx_vec[]` (recibido desde TX)
+   - Valida loopback: `∀i: tx_vec[i] === rx_vec[i]`
+
+#### **Resultados de Verificación**
+
+La testbench valida múltiples aspectos del sistema:
+
+**1. Integridad de Datos:**
+- Bytes transmitidos se reciben sin alteración
+- Orden LSB-first se preserva en ambas direcciones
+
+**2. Sincronización de FIFOs:**
+- FIFO_RX bufferiza correctamente datos recibidos
+- FIFO_TX alimenta uart_tx sin pérdida de datos
+- Estado S_LOAD en uart_tx compensa latencia de sync_fifo
+
+**3. Timing del Sistema:**
+- Baudrate generator produce timing correcto
+- TX y RX operan a misma velocidad configurada
+- ALU procesa datos más rápido que velocidad UART (sin saturación de FIFOs)
+
+**4. Control de Flujo:**
+- Señales `write_o`, `read_en` funcionan correctamente
+- Handshakes entre módulos sin race conditions
+
+### 4.6 Diagrama del Módulo uart_top
+
+<p align="center">
+  <a>
+    <img src="imgs/uart_top_rtl.jpg" alt="UART Top RTL">
+  </a>
+</p>
+
+# PLACEHOLDER
 
 ---

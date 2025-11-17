@@ -11,8 +11,9 @@
  * de paridad (NONE/EVEN/ODD) son parametrizables.
  *
  * Características ADICIONALES:
- * - Interfaz opcional tipo FIFO: write_o/read_en
+ * - Interfaz opcional tipo FIFO: write_o/read_en con sincronización automática
  * - Latch de tx_start para capturar pulsos de 1 ciclo
+ * - Estado S_LOAD para sincronizar lectura de FIFO (latencia de 1 ciclo)
  *
  * Estructura del frame transmitido:
  * - START: 1 bit (siempre '0')
@@ -22,6 +23,7 @@
  *
  * Máquina de estados (FSM):
  * - S_IDLE   → Espera tx_start o write_o (línea en '1')
+ * - S_LOAD   → Espera 1 ciclo para que FIFO entregue dato válido (solo con write_o)
  * - S_START  → Transmite START ('0') durante 1 bit
  * - S_DATA   → Transmite DATA LSB→MSB
  * - S_PARITY → Transmite bit de paridad (si aplica)
@@ -31,6 +33,12 @@
  * Temporización:
  * - Cada bit dura OVERSAMPLE ticks de baud_tick (p.ej. x16 del baudrate)
  * - El avance de la FSM y contadores se realiza con baud_tick
+ * - Estado S_LOAD agrega 1 ciclo de latencia cuando se usa interfaz FIFO
+ *
+ * Interfaz FIFO:
+ * - Cuando write_o=1: genera read_en, espera 1 ciclo en S_LOAD, luego captura din
+ * - Cuando tx_start=1: captura din inmediatamente (sin S_LOAD)
+ * - Esto compensa la latencia de 1 ciclo de sync_fifo entre read_en y data_out
  *
  * Paridad:
  * - Calculada sobre data_reg (copia de los DATA_BITS originales)
@@ -85,10 +93,17 @@ module uart_tx
     
     /**
      * @brief Estados de la máquina de transmisión
-    * @details Secuencia: IDLE → START → DATA → [PARITY] → STOP → DONE → IDLE
+     * @details Secuencias posibles:
+     * - Con tx_start: IDLE → START → DATA → [PARITY] → STOP → DONE → IDLE
+     * - Con write_o:  IDLE → LOAD → START → DATA → [PARITY] → STOP → DONE → IDLE
+     * 
+     * El estado S_LOAD es necesario porque sync_fifo registra data_out con 1 ciclo
+     * de latencia después de read_en. Esto garantiza que din tenga el dato válido
+     * antes de cargarlo en shifter/data_reg.
      */
     typedef enum logic [3:0] {
         S_IDLE,   //!< Espera de tx_start o write_o, línea en alto (idle)
+        S_LOAD,   //!< Espera 1 ciclo para que FIFO entregue dato válido (solo con write_o)
         S_START,  //!< Transmisión de bit de inicio (siempre '0')
         S_DATA,   //!< Transmisión de bits de datos (LSB primero)
         S_PARITY, //!< Transmisión de bit de paridad (condicional)
@@ -188,25 +203,62 @@ module uart_tx
 
         /**
          * @brief Estado IDLE - Espera de inicio de transmisión
-         * @details Mantiene línea en alto (idle). Inicia transmisión si:
-         * - tx_start_pending está activo (pulso capturado previamente)
-         * - write_o está activo (dato disponible en FIFO)
-         * Al iniciar, captura datos; genera pulso read_en si aplica.
-         * Opera sin necesidad de baud_tick
+         * @details Mantiene línea en alto (idle). Dos modos de inicio:
+         * 
+         * 1. tx_start_pending (interfaz directa):
+         *    - Dato ya disponible en din
+         *    - Carga inmediata a shifter/data_reg
+         *    - Transición directa a S_START
+         * 
+         * 2. write_o (interfaz FIFO):
+         *    - Genera pulso read_en para solicitar dato a FIFO
+         *    - Transición a S_LOAD para esperar 1 ciclo
+         *    - FIFO entregará dato válido en din al ciclo siguiente
+         * 
+         * Opera sin necesidad de baud_tick (cambios inmediatos en clk)
          */
         if (state == S_IDLE) begin
             next_tx = 1'b1;  // Línea idle en alto
             // Detectar solicitud de transmisión
-            if (tx_start_pending || write_o) begin
+            if (tx_start_pending) begin
+                // tx_start: dato ya está en din, cargamos directamente
                 next_shifter   = din;         // Cargar datos a shifter
                 next_data_reg  = din;         // Copiar para cálculo de paridad
                 next_bit_index = '0;          // Reiniciar índice
                 next_os_count  = '0;          // Reiniciar contador
                 next_state     = S_START;     // Pasar a START
                 next_tx        = 1'b0;        // Bajar línea (START bit)
-                // Pulso read_en solo si se usa FIFO
-                if (write_o) next_read_en = 1'b1;
+            end else if (write_o) begin
+                // write_o: necesitamos esperar 1 ciclo para que FIFO entregue dato
+                next_read_en = 1'b1;          // Solicitar lectura a FIFO
+                next_state   = S_LOAD;        // Ir a estado de carga
+                next_tx      = 1'b1;          // Mantener línea idle
             end
+        end
+
+        /**
+         * @brief Estado S_LOAD - Sincronización con FIFO
+         * @details Estado de espera de 1 ciclo para compensar la latencia de sync_fifo.
+         * 
+         * Timing FIFO:
+         * - Ciclo N:   uart_tx genera read_en=1 en S_IDLE, transiciona a S_LOAD
+         * - Ciclo N+1: sync_fifo registra data_out con dato válido, uart_tx en S_LOAD
+         * - Ciclo N+2: uart_tx captura din (ahora válido), transiciona a S_START
+         * 
+         * Esto garantiza que shifter/data_reg contengan el dato correcto de la FIFO
+         * antes de iniciar la transmisión serie.
+         * 
+         * Opera sin baud_tick (cambio inmediato en clk)
+         */
+        else if (state == S_LOAD) begin
+            next_tx = 1'b1;  // Mantener línea idle
+            // En este ciclo, din ya tiene el dato válido de FIFO
+            next_shifter   = din;         // Capturar dato desde FIFO
+            next_data_reg  = din;         // Copiar para cálculo de paridad
+            next_bit_index = '0;          // Reiniciar índice
+            next_os_count  = '0;          // Reiniciar contador
+            next_state     = S_START;     // Pasar a START
+            next_tx        = 1'b0;        // Bajar línea (START bit)
         end
 
         // Resto de estados solo avanzan con baud_tick
