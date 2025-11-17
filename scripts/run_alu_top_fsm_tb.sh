@@ -25,7 +25,9 @@ echo "[INFO] Compilando testbench alu_top_fsm..."
   "${REPO_ROOT}/src/rtl/sync_fifo.sv" \
   "${REPO_ROOT}/src/rtl/uart_packet_decoder.sv" \
   "${REPO_ROOT}/src/rtl/alu_top_fsm.v" \
+  "${REPO_ROOT}/src/rtl/alu_timescale.vh" \
   "${REPO_ROOT}/src/sim/sv/tb_alu_top_fsm.sv"
+  
 
 echo "[INFO] Ejecutando simulación..."
 "${VVP_BIN}" "${OUTPUT}"

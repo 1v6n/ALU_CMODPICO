@@ -53,7 +53,7 @@ module alu_top_fsm #(
         .level()
     );
 
-    assign uart_rx_ready = !rx_fifo_full;
+    assign uart_rx_ready = !rx_fifo_full;   //!< Listo para recibir si la FIFO no está llena    
 
     //! @brief Decoder UART -> pulsos de carga ALU
     wire [DATA_WIDTH-1:0] alu_data;

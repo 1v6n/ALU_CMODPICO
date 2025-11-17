@@ -13,9 +13,10 @@ IVERILOG_BIN="${IVERILOG:-iverilog}"
 VVP_BIN="${VVP:-vvp}"
 
 echo "[INFO] Compilando testbench sync_fifo..."
-"${IVERILOG_BIN}" -g2012 \
+"${IVERILOG_BIN}" -g2012 -I "${REPO_ROOT}/src/rtl" \
     -o "${OUTPUT}" \
     "${REPO_ROOT}/src/rtl/sync_fifo.sv" \
+    "${REPO_ROOT}/src/rtl/alu_timescale.vh" \
     "${REPO_ROOT}/src/sim/sv/tb_sync_fifo.sv"
 
 echo "[INFO] Ejecutando simulación..."

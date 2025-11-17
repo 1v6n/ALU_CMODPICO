@@ -1,3 +1,5 @@
+`include "alu_timescale.vh"
+
 /**
  * FSM Decodificador de Paquetes UART
  *

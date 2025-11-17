@@ -1,3 +1,5 @@
+`include "alu_timescale.vh"
+
 /*
  * @file sync_fifo.sv
  * @brief FIFO síncrona parametrizable que desacopla productores y consumidores ready/valid.
