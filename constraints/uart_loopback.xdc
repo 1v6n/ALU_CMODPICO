@@ -23,9 +23,9 @@ create_clock -period 83.333 -name sys_clk [get_ports {clk}]
 # ===================================================================================
 # SECCIÓN 2: SEÑAL DE RESET
 # ===================================================================================
-# Asigna el botón BTN0 como señal de reset
-# PULLUP TRUE: Asegura estado alto por defecto
-set_property -dict { PACKAGE_PIN D9 IOSTANDARD LVCMOS33 } [get_ports {rst}]
+# Asigna el pin PIO12 como señal de reset (la Cmod A7-35T no tiene botones)
+# PULLUP TRUE: Asegura estado alto por defecto cuando no está conectado
+set_property -dict { PACKAGE_PIN K2 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports {rst}]
 
 # Declara reset como ruta falsa (señal asíncrona)
 set_false_path -from [get_ports {rst}]
