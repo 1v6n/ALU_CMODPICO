@@ -16,8 +16,8 @@ create_clock -period 83.333 -name sys_clk [get_ports {clk}]
 # ===================================================================================
 # SECCIÓN 2: SEÑAL DE RESET
 # ===================================================================================
-# Pin PIO12 como reset (con pull-up interno)
-set_property -dict { PACKAGE_PIN K2 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports {rst}]
+# Botón A18 como reset (con pull-up interno)
+set_property -dict { PACKAGE_PIN A18 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports {rst}]
 set_false_path -from [get_ports {rst}]
 
 
@@ -25,7 +25,7 @@ set_false_path -from [get_ports {rst}]
 # SECCIÓN 3: INTERFAZ UART (USB-UART INTEGRADO)
 # ===================================================================================
 # RX (J18): Recibe datos desde la PC a través del conversor USB-UART integrado
-set_property -dict { PACKAGE_PIN J18 IOSTANDARD LVCMOS33 } [get_ports {rx}]
+set_property -dict { PACKAGE_PIN J17 IOSTANDARD LVCMOS33 } [get_ports {rx}]
 
 
 # ===================================================================================

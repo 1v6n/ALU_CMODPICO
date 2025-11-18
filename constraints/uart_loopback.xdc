@@ -43,8 +43,8 @@ set_false_path -from [get_ports {rst}]
 # IMPORTANTE: Estos pines están conectados internamente al puerto micro-USB
 # de la placa, por lo que NO requieren hardware adicional.
 
-set_property -dict { PACKAGE_PIN J18 IOSTANDARD LVCMOS33 } [get_ports {rx}]  ;# USB_UART_RXD
-set_property -dict { PACKAGE_PIN J17 IOSTANDARD LVCMOS33 } [get_ports {tx}]  ;# USB_UART_TXD
+set_property -dict { PACKAGE_PIN J17 IOSTANDARD LVCMOS33 } [get_ports {rx}]  ;# USB_UART_RXD
+set_property -dict { PACKAGE_PIN J18 IOSTANDARD LVCMOS33 } [get_ports {tx}]  ;# USB_UART_TXD
 
 
 # ===================================================================================

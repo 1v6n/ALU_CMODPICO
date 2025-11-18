@@ -43,7 +43,7 @@ module uart_rx_led_toggle
     // Señales de reloj y reset
     // ========================================================================
     input  logic              clk,                     //!< Reloj del sistema (12 MHz)
-    input  logic              rst,                     //!< Reset síncrono activo por ALTO
+    input  logic              rst,                     //!< Reset síncrono activo por BAJO
 
     // ========================================================================
     // Interfaz UART física
@@ -85,7 +85,7 @@ module uart_rx_led_toggle
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (rst),
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
@@ -99,7 +99,7 @@ module uart_rx_led_toggle
         .PARITY     (PARITY)
     ) u_uart_rx (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (rst),
         .rx            (rx),
         .baud_tick     (baud_x16_tick),
         .dout          (dout),
@@ -123,9 +123,9 @@ module uart_rx_led_toggle
      * El toggle permite ver actividad acumulativa sin necesidad
      * de mantener el estado desde la PC.
      */
-    always_ff @(posedge clk or posedge rst) begin
-        if (rst) begin
-            led <= 1'b0;
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            led <= 1'b1;
         end else begin
             if (rx_done_tick && !frame_error && !parity_error) begin
                 // Si el LSB del byte recibido es '1', hacer toggle
