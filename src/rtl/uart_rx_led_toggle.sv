@@ -80,7 +80,7 @@ module uart_rx_led_toggle
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst           (rst),
+        .rst           (rst_n),
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
@@ -94,7 +94,7 @@ module uart_rx_led_toggle
         .PARITY     (PARITY)
     ) u_uart_rx (
         .clk           (clk),
-        .rst           (rst),
+        .rst           (rst_n),
         .rx            (rx),
         .baud_tick     (baud_x16_tick),
         .dout          (dout),
@@ -119,7 +119,7 @@ module uart_rx_led_toggle
      * de mantener el estado desde la PC.
      */
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst_n) begin
             led <= 1'b0;
         end else begin
             if (rx_done_tick && !frame_error && !parity_error) begin

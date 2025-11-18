@@ -103,7 +103,7 @@ module uart_loopback_top
         .FIFO_DEPTH  (FIFO_DEPTH)
     ) u_uart_top (
         .clk            (clk),
-        .rst            (rst),     
+        .rst            (rst_n),     
 
         .rx             (rx),
         .tx             (tx),
@@ -152,7 +152,7 @@ module uart_loopback_top
     loopback_state_t loopback_state;
 
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst_n) begin
             loopback_state   <= S_IDLE;
             write_en_tx_top  <= 1'b0;
             read_en_rx_top   <= 1'b0;
@@ -208,7 +208,7 @@ module uart_loopback_top
 
     // LED0: rx_done indicator
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst_n) begin
             led0         <= 1'b0;
             led0_counter <= '0;
         end else begin
@@ -225,7 +225,7 @@ module uart_loopback_top
 
     // LED1: tx_done indicator
     always_ff @(posedge clk) begin
-        if (rst) begin
+        if (rst_n) begin
             led1         <= 1'b0;
             led1_counter <= '0;
         end else begin
