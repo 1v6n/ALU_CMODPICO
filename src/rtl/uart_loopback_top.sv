@@ -197,8 +197,6 @@ module uart_loopback_top
      * 
      * Los LEDs se mantienen encendidos durante un periodo corto para 
      * visualización. Implementado con contadores de timeout.
-     * 
-     * IMPORTANTE: Los LEDs son activos por BAJO (0=encendido, 1=apagado)
      */
     
     localparam int LED_TIMEOUT_CYCLES = 1_200_000;  // ~100 ms @ 12 MHz

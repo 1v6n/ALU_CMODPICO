@@ -122,27 +122,6 @@ module uart_top
 );
 
     // ========================================================================
-    // Gestión de reset: Adaptación de botón activo bajo a lógica activa alta
-    // ========================================================================
-    
-    /**
-     * @brief Conversión de señal de reset del botón a lógica interna
-     * @details El botón físico tiene PULLUP interno:
-     *   - Botón liberado (no presionado) → rst=1 (alto)
-     *   - Botón presionado              → rst=0 (bajo)
-     * 
-     * Los módulos internos usan reset activo ALTO:
-     *   - rst_n=1 → Módulos en RESET
-     *   - rst_n=0 → Módulos operando
-     * 
-     * La inversión rst_n = ~rst genera:
-     *   - Botón liberado  → rst=1 → rst_n=0 → OPERACIÓN NORMAL ✓
-     *   - Botón presionado → rst=0 → rst_n=1 → RESET ACTIVO ✓
-     */
-    logic rst_n;
-    assign rst_n = ~rst;
-
-    // ========================================================================
     // Señales internas del generador de baudrate
     // ========================================================================
     
@@ -215,7 +194,7 @@ module uart_top
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst           (rst),         // Reset invertido (activo alto)
+        .rst           (rst),
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
