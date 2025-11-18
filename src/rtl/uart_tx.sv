@@ -61,7 +61,7 @@ module uart_tx
     // Señales de reloj y reset
     // ========================================================================
     input  logic              clk,            //!< Reloj del sistema
-    input  logic              rst_n,          //!< Reset síncrono activo por bajo
+    input  logic              rst,            //!< Reset síncrono activo por alto
 
     // ========================================================================
     // Interfaz de control de transmisión
@@ -251,7 +251,6 @@ module uart_tx
          * Opera sin baud_tick (cambio inmediato en clk)
          */
         else if (state == S_LOAD) begin
-            next_tx = 1'b1;  // Mantener línea idle
             // En este ciclo, din ya tiene el dato válido de FIFO
             next_shifter   = din;         // Capturar dato desde FIFO
             next_data_reg  = din;         // Copiar para cálculo de paridad
@@ -365,7 +364,7 @@ module uart_tx
      * 5. Gestión de pulsos: read_en se mantiene 1 ciclo
      */
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (rst) begin
             // Reset asíncrono: valores iniciales seguros
             state            <= S_IDLE;   // Estado inicial
             tx               <= 1'b1;     // Línea idle en alto

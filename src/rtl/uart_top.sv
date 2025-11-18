@@ -122,13 +122,22 @@ module uart_top
 );
 
     // ========================================================================
-    // Gestión de reset: conversión de activo-alto a activo-bajo
+    // Gestión de reset: Adaptación de botón activo bajo a lógica activa alta
     // ========================================================================
     
     /**
-     * @brief Señal de reset activo por bajo para módulos TX, RX y baudrate_gen
-     * @details Los módulos uart_tx, uart_rx y uart_baudrate_gen usan rst_n (activo bajo),
-     * mientras que sync_fifo usa rst (activo alto).
+     * @brief Conversión de señal de reset del botón a lógica interna
+     * @details El botón físico tiene PULLUP interno:
+     *   - Botón liberado (no presionado) → rst=1 (alto)
+     *   - Botón presionado              → rst=0 (bajo)
+     * 
+     * Los módulos internos usan reset activo ALTO:
+     *   - rst_n=1 → Módulos en RESET
+     *   - rst_n=0 → Módulos operando
+     * 
+     * La inversión rst_n = ~rst genera:
+     *   - Botón liberado  → rst=1 → rst_n=0 → OPERACIÓN NORMAL ✓
+     *   - Botón presionado → rst=0 → rst_n=1 → RESET ACTIVO ✓
      */
     logic rst_n;
     assign rst_n = ~rst;
@@ -206,7 +215,7 @@ module uart_top
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst_n         (rst),
+        .rst           (rst),         // Reset invertido (activo alto)
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
@@ -247,7 +256,7 @@ module uart_top
         .PARITY     (PARITY)
     ) u_uart_rx (
         .clk           (clk),
-        .rst_n         (rst),
+        .rst           (rst),
         .rx            (rx),
         .baud_tick     (baud_x16_tick),
         .dout          (rx_dout),
@@ -276,7 +285,7 @@ module uart_top
         .DEPTH      (FIFO_DEPTH)
     ) u_fifo_rx (
         .clk        (clk),
-        .rst        (rst_n),             
+        .rst        (rst),
         .write_en   (rx_write_en),      // Escritura controlada desde uart_rx
         .data_in    (rx_dout),          // Datos desde uart_rx
         .read_en    (read_en_rx_top),   // Lectura desde ALU
@@ -329,7 +338,7 @@ module uart_top
         .PARITY     (PARITY)
     ) u_uart_tx (
         .clk           (clk),
-        .rst_n         (rst),
+        .rst           (rst),
         .tx_start      (1'b0),              // No usado: interfaz FIFO en uso
         .baud_tick     (baud_x16_tick),
         .din           (tx_fifo_data_out),  // Datos desde FIFO_TX
@@ -357,7 +366,7 @@ module uart_top
         .DEPTH      (FIFO_DEPTH)
     ) u_fifo_tx (
         .clk        (clk),
-        .rst        (rst_n),                 
+        .rst        (rst),  
         .write_en   (write_en_tx_top),      // Escritura desde ALU
         .data_in    (tx_data_in),           // Datos desde ALU
         .read_en    (tx_fifo_read_en),      // Lectura desde uart_tx

@@ -24,7 +24,7 @@ module uart_baudrate_gen #(
 ) (
     //! @brief Señales de entrada
     input  logic clk,        //!< Reloj principal (12 MHz)
-    input  logic rst_n,      //!< Reset síncrono ACTIVO POR BAJO
+    input  logic rst,        //!< Reset síncrono ACTIVO POR ALTO
     
     //! @brief Señales de salida
     output logic baud_tick,     //!< Tick de baudrate
@@ -46,7 +46,7 @@ module uart_baudrate_gen #(
     
     // Generación del tick de baudrate principal (9600 Hz)
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (rst) begin
             baud_counter <= '0;
             baud_tick <= 1'b0;
         end else begin
@@ -62,7 +62,7 @@ module uart_baudrate_gen #(
     
     // Generación del tick de oversampling x16 (153.6 kHz)
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (rst) begin
             baud_x16_counter <= '0;
             baud_x16_tick <= 1'b0;
         end else begin

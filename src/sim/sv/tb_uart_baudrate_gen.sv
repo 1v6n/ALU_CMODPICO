@@ -19,7 +19,7 @@ module tb_uart_baudrate_gen;
     
     // Señales del testbench
     reg clk;
-    reg rst_n;
+    reg rst;
     wire baud_tick;
     wire baud_x16_tick;
     
@@ -43,7 +43,7 @@ module tb_uart_baudrate_gen;
         .OVERSAMPLE(OVERSAMPLE)
     ) dut (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst(rst),
         .baud_tick(baud_tick),
         .baud_x16_tick(baud_x16_tick)
     );
@@ -72,9 +72,9 @@ module tb_uart_baudrate_gen;
         $display("Expected Baud x16 Period: %0.2f ns", EXPECTED_BAUD_X16_PERIOD_NS);
         
         // Reset inicial
-        rst_n = 1'b0;
+        rst = 1'b1;
         repeat(10) @(posedge clk);
-        rst_n = 1'b1;
+        rst = 1'b0;
         
         // Esperar a que se estabilice
         repeat(100) @(posedge clk);

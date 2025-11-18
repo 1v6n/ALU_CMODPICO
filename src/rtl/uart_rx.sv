@@ -63,7 +63,7 @@ module uart_rx
     // Señales de reloj y reset
     // ========================================================================
     input  logic              clk,            //!< Reloj del sistema
-    input  logic              rst_n,          //!< Reset síncrono activo por bajo
+    input  logic              rst,            //!< Reset síncrono activo por alto
 
     // ========================================================================
     // Interfaz de control de recepción
@@ -341,7 +341,7 @@ module uart_rx
      * 3. Actualización continua: señales de salida (fuera de baud_tick)
      */
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (rst) begin
             // Reset asíncrono: valores iniciales seguros
             state              <= S_IDLE;   // Estado inicial
             dout               <= '0;       // Datos en cero

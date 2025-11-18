@@ -27,7 +27,7 @@ module uart_loopback_top
     // Señales de reloj y reset
     // ========================================================================
     input  logic              clk,                     //!< Reloj del sistema (12 MHz)
-    input  logic              rst,                     //!< Reset síncrono activo por ALTO
+    input  logic              rst,                     //!< Reset síncrono activo por BAJO (botón con pullup)
 
     // ========================================================================
     // Interfaz UART física (hacia/desde PC)
@@ -41,6 +41,27 @@ module uart_loopback_top
     output logic              led0,                    //!< LED0: indica rx_done_tick
     output logic              led1                     //!< LED1: indica tx_done_tick
 );
+
+    // ========================================================================
+    // Gestión de reset: Adaptación de botón activo bajo a lógica activa alta
+    // ========================================================================
+    
+    /**
+     * @brief Conversión de señal de reset del botón a lógica interna
+     * @details El botón físico tiene PULLUP interno:
+     *   - Botón liberado (no presionado) → rst=1 (alto)
+     *   - Botón presionado              → rst=0 (bajo)
+     * 
+     * Los módulos internos y lógica local usan reset activo ALTO:
+     *   - rst_n=1 → En RESET
+     *   - rst_n=0 → Operando
+     * 
+     * La inversión rst_n = ~rst genera:
+     *   - Botón liberado  → rst=1 → rst_n=0 → OPERACIÓN NORMAL ✓
+     *   - Botón presionado → rst=0 → rst_n=1 → RESET ACTIVO ✓
+     */
+    logic rst_n;
+    assign rst_n = ~rst;
 
     // ========================================================================
     // Señales internas del módulo uart_top
@@ -82,7 +103,7 @@ module uart_loopback_top
         .FIFO_DEPTH  (FIFO_DEPTH)
     ) u_uart_top (
         .clk            (clk),
-        .rst            (rst),
+        .rst            (rst),     
 
         .rx             (rx),
         .tx             (tx),
@@ -188,16 +209,16 @@ module uart_loopback_top
     // LED0: rx_done indicator
     always_ff @(posedge clk) begin
         if (rst) begin
-            led0         <= 1'b1;
+            led0         <= 1'b0;
             led0_counter <= '0;
         end else begin
             if (rx_done_tick) begin
-                led0         <= 1'b0;
+                led0         <= 1'b1;
                 led0_counter <= LED_TIMEOUT_CYCLES;
             end else if (led0_counter > 0) begin
                 led0_counter <= led0_counter - 1;
                 if (led0_counter == 1)  // Apagar cuando llegue a 0
-                    led0 <= 1'b1;
+                    led0 <= 1'b0;
             end
         end
     end
@@ -205,16 +226,16 @@ module uart_loopback_top
     // LED1: tx_done indicator
     always_ff @(posedge clk) begin
         if (rst) begin
-            led1         <= 1'b1;
+            led1         <= 1'b0;
             led1_counter <= '0;
         end else begin
             if (tx_done_tick) begin
-                led1         <= 1'b0;
+                led1         <= 1'b1;
                 led1_counter <= LED_TIMEOUT_CYCLES;
             end else if (led1_counter > 0) begin
                 led1_counter <= led1_counter - 1;
                 if (led1_counter == 1)  // Apagar cuando llegue a 0
-                    led1 <= 1'b1;
+                    led1 <= 1'b0;
             end
         end
     end

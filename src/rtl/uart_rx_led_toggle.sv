@@ -51,7 +51,8 @@ module uart_rx_led_toggle
 );
 
     // ========================================================================
-    // Señal de reset activo por bajo (para uart_rx y baudrate_gen)
+    // Señal de reset activo por bajo
+    // Se usa teniendo en cuenta que el botón de RST tiene una pullup interna
     // ========================================================================
     logic rst_n;
     assign rst_n = ~rst;
@@ -79,7 +80,7 @@ module uart_rx_led_toggle
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst_n         (rst),
+        .rst           (rst),
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
@@ -93,7 +94,7 @@ module uart_rx_led_toggle
         .PARITY     (PARITY)
     ) u_uart_rx (
         .clk           (clk),
-        .rst_n         (rst),
+        .rst           (rst),
         .rx            (rx),
         .baud_tick     (baud_x16_tick),
         .dout          (dout),
@@ -118,8 +119,8 @@ module uart_rx_led_toggle
      * de mantener el estado desde la PC.
      */
     always_ff @(posedge clk) begin
-        if (rst_n) begin
-            led <= 1'b1;
+        if (rst) begin
+            led <= 1'b0;
         end else begin
             if (rx_done_tick && !frame_error && !parity_error) begin
                 // Si el LSB del byte recibido es '1', hacer toggle

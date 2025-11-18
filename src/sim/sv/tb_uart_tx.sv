@@ -72,7 +72,7 @@ module tb_uart_tx;
     // ========================================================================
     
     logic clk;                  //!< Reloj del sistema
-    logic rst_n;                //!< Reset síncrono activo por bajo
+    logic rst;                  //!< Reset síncrono activo por alto
     logic tx_start;             //!< Pulso de inicio de transmisión
     logic baud_tick;            //!< Tick de baudrate x1 (no usado en TB)
     logic baud_x16_tick;        //!< Tick de oversampling x16 (alimenta al DUT)
@@ -115,7 +115,7 @@ module tb_uart_tx;
         .OVERSAMPLE(OVERSAMPLE)
     ) baudgen (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst(rst),
         .baud_tick(baud_tick),
         .baud_x16_tick(baud_x16_tick)
     );
@@ -125,7 +125,7 @@ module tb_uart_tx;
      * @details Se utiliza para medir el timing de los frames transmitidos
      */
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
+        if (rst) begin
             total_cycles <= 0;
         end else begin
             total_cycles <= total_cycles + 1;
@@ -152,7 +152,7 @@ module tb_uart_tx;
                                     uart_parity_pkg::PARITY_NONE)
     ) dut (
         .clk(clk),
-        .rst_n(rst_n),
+        .rst(rst),
         .tx_start(tx_start),
         .baud_tick(baud_x16_tick),  // Tick de oversampling x16
         .din(din),
@@ -172,7 +172,7 @@ module tb_uart_tx;
      * para estabilización. Inicializa todos los contadores y señales de control.
      */
     task automatic do_reset();
-        rst_n       = 1'b0;
+        rst         = 1'b1;
         tx_start    = 1'b0;
         din         = 8'h00;
         write_o     = 1'b0; // Mantener en 0 para desactivar arranque por FIFO
@@ -180,7 +180,7 @@ module tb_uart_tx;
         test_count  = 0;
         total_cycles = 0;
         repeat (10) @(posedge clk);
-        rst_n = 1'b1;
+        rst = 1'b0;
         repeat (5) @(posedge clk);
     endtask
 
