@@ -23,11 +23,8 @@ create_clock -period 83.333 -name sys_clk [get_ports {clk}]
 # ===================================================================================
 # SECCIÓN 2: SEÑAL DE RESET
 # ===================================================================================
-# Asigna el pin PIO12 como señal de reset (la Cmod A7-35T no tiene botones)
-# PULLUP TRUE: Asegura estado alto por defecto cuando no está conectado
-set_property -dict { PACKAGE_PIN K2 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports {rst}]
-
-# Declara reset como ruta falsa (señal asíncrona)
+# Botón A18 como reset (con pull-up interno)
+set_property -dict { PACKAGE_PIN A18 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports {rst}]
 set_false_path -from [get_ports {rst}]
 
 
@@ -37,8 +34,8 @@ set_false_path -from [get_ports {rst}]
 # La placa Cmod A7-35T tiene un conversor USB-UART FTDI integrado
 # que se conecta directamente a la FPGA.
 #
-# RX (J18): Recibe datos desde la PC
-# TX (J17): Transmite datos hacia la PC
+# RX (J17): Recibe datos desde la PC
+# TX (J18): Transmite datos hacia la PC
 #
 # IMPORTANTE: Estos pines están conectados internamente al puerto micro-USB
 # de la placa, por lo que NO requieren hardware adicional.

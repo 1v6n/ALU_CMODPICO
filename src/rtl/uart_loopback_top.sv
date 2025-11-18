@@ -11,29 +11,6 @@
  * - Transfiere automáticamente los datos de FIFO_RX a FIFO_TX
  * - Transmite los datos de vuelta a la PC (TX)
  * - Indica actividad con LEDs: LED0 para rx_done, LED1 para tx_done
- *
- * Arquitectura:
- * ┌─────┐    RX    ┌──────────┐   FIFO_RX   ┌──────────┐   FIFO_TX   ┌──────────┐    TX    ┌─────┐
- * │ PC  │─────────▶│ UART_RX  │────────────▶│ Loopback │────────────▶│ UART_TX  │─────────▶│ PC  │
- * │     │          │          │             │  Logic   │             │          │          │     │
- * └─────┘          └──────────┘             └──────────┘             └──────────┘          └─────┘
- *                       │                         │                        │
- *                       ▼                         ▼                        ▼
- *                   rx_done ────────────────▶  LED0             tx_done ─────────▶  LED1
- *
- * Características:
- * - UART configurado para 9600 baud, 8 bits de datos, sin paridad, 1 bit de stop
- * - FIFOs de 32 posiciones cada una para buffering
- * - Lógica de loopback automática que transfiere datos entre FIFOs
- * - Indicadores LED para monitoreo visual de actividad
- *
- * Parámetros:
- * - DATA_BITS: Ancho de palabra UART (8 bits)
- * - PARITY: Sin paridad
- * - OVERSAMPLE: Factor de oversampling x16
- * - CLOCK_FREQ: 12 MHz (oscilador de la placa)
- * - BAUD_RATE: 9600 bps
- * - FIFO_DEPTH: 32 posiciones
  */
 
 module uart_loopback_top
@@ -153,7 +130,7 @@ module uart_loopback_top
 
     loopback_state_t loopback_state;
 
-    always_ff @(posedge clk or posedge rst) begin
+    always_ff @(posedge clk) begin
         if (rst) begin
             loopback_state   <= S_IDLE;
             write_en_tx_top  <= 1'b0;
@@ -199,6 +176,8 @@ module uart_loopback_top
      * 
      * Los LEDs se mantienen encendidos durante un periodo corto para 
      * visualización. Implementado con contadores de timeout.
+     * 
+     * IMPORTANTE: Los LEDs son activos por BAJO (0=encendido, 1=apagado)
      */
     
     localparam int LED_TIMEOUT_CYCLES = 1_200_000;  // ~100 ms @ 12 MHz
@@ -207,35 +186,35 @@ module uart_loopback_top
     logic [$clog2(LED_TIMEOUT_CYCLES+1)-1:0] led1_counter;
 
     // LED0: rx_done indicator
-    always_ff @(posedge clk or posedge rst) begin
+    always_ff @(posedge clk) begin
         if (rst) begin
-            led0         <= 1'b0;
+            led0         <= 1'b1;
             led0_counter <= '0;
         end else begin
             if (rx_done_tick) begin
-                led0         <= 1'b1;
-                led0_counter <= LED_TIMEOUT_CYCLES;  // Reinicia timeout en cada tick
+                led0         <= 1'b0;
+                led0_counter <= LED_TIMEOUT_CYCLES;
             end else if (led0_counter > 0) begin
                 led0_counter <= led0_counter - 1;
                 if (led0_counter == 1)  // Apagar cuando llegue a 0
-                    led0 <= 1'b0;
+                    led0 <= 1'b1;
             end
         end
     end
 
     // LED1: tx_done indicator
-    always_ff @(posedge clk or posedge rst) begin
+    always_ff @(posedge clk) begin
         if (rst) begin
-            led1         <= 1'b0;
+            led1         <= 1'b1;
             led1_counter <= '0;
         end else begin
             if (tx_done_tick) begin
-                led1         <= 1'b1;
-                led1_counter <= LED_TIMEOUT_CYCLES;  // Reinicia timeout en cada tick
+                led1         <= 1'b0;
+                led1_counter <= LED_TIMEOUT_CYCLES;
             end else if (led1_counter > 0) begin
                 led1_counter <= led1_counter - 1;
                 if (led1_counter == 1)  // Apagar cuando llegue a 0
-                    led1 <= 1'b0;
+                    led1 <= 1'b1;
             end
         end
     end

@@ -77,7 +77,7 @@ module uart_top
     // Señales de reloj y reset
     // ========================================================================
     input  logic              clk,                     //!< Reloj del sistema
-    input  logic              rst,                     //!< Reset síncrono activo por ALTO
+    input  logic              rst,                     //!< Reset síncrono activo por BAJO (tiene una pullup interna)
 
     // ========================================================================
     // Interfaz UART física (hacia PC)
@@ -206,7 +206,7 @@ module uart_top
         .OVERSAMPLE (OVERSAMPLE)
     ) u_baudrate_gen (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (rst),
         .baud_tick     (baud_tick),
         .baud_x16_tick (baud_x16_tick)
     );
@@ -247,7 +247,7 @@ module uart_top
         .PARITY     (PARITY)
     ) u_uart_rx (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (rst),
         .rx            (rx),
         .baud_tick     (baud_x16_tick),
         .dout          (rx_dout),
@@ -276,7 +276,7 @@ module uart_top
         .DEPTH      (FIFO_DEPTH)
     ) u_fifo_rx (
         .clk        (clk),
-        .rst        (rst),             
+        .rst        (rst_n),             
         .write_en   (rx_write_en),      // Escritura controlada desde uart_rx
         .data_in    (rx_dout),          // Datos desde uart_rx
         .read_en    (read_en_rx_top),   // Lectura desde ALU
@@ -329,7 +329,7 @@ module uart_top
         .PARITY     (PARITY)
     ) u_uart_tx (
         .clk           (clk),
-        .rst_n         (rst_n),
+        .rst_n         (rst),
         .tx_start      (1'b0),              // No usado: interfaz FIFO en uso
         .baud_tick     (baud_x16_tick),
         .din           (tx_fifo_data_out),  // Datos desde FIFO_TX
@@ -357,7 +357,7 @@ module uart_top
         .DEPTH      (FIFO_DEPTH)
     ) u_fifo_tx (
         .clk        (clk),
-        .rst        (rst),                 
+        .rst        (rst_n),                 
         .write_en   (write_en_tx_top),      // Escritura desde ALU
         .data_in    (tx_data_in),           // Datos desde ALU
         .read_en    (tx_fifo_read_en),      // Lectura desde uart_tx
@@ -420,7 +420,6 @@ module uart_top
         end else begin
             $display("  Frame structure: START + DATA[%0d] + PARITY + STOP", DATA_BITS);
         end
-        $display("  Reset polarity : rst=HIGH, rst_n=LOW (internal)");
         $display("  ");
         $display("  Timing Analysis:");
         $display("  ---------------");

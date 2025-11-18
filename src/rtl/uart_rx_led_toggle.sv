@@ -11,12 +11,6 @@
  * - Si el bit es '1', hace toggle del LED
  * - Si el bit es '0', no hace nada
  *
- * Arquitectura:
- * ┌─────┐    RX    ┌──────────┐   dout[0]   ┌──────────┐   toggle    ┌─────┐
- * │ PC  │─────────▶│ UART_RX  │────────────▶│  Toggle  │────────────▶│ LED │
- * │     │          │          │   rx_done   │  Logic   │             │     │
- * └─────┘          └──────────┘             └──────────┘             └─────┘
- *
  * Uso:
  * - Enviar '0x01' desde PC → LED cambia de estado
  * - Enviar '0x00' desde PC → LED se mantiene igual
