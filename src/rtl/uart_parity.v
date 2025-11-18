@@ -1,7 +1,7 @@
 `include "alu_timescale.vh"
 
 /**
- * @file uart_parity.vh
+ * @file uart_parity.v
  * @brief Definiciones de tipos para configuración de paridad UART
  *
  * @details Define el enum parity_t para selección de modo de paridad
