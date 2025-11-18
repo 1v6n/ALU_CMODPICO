@@ -30,7 +30,7 @@ module tb_uart_loopback_top;
     // Señales del DUT
     // ========================================================================
     logic clk = 0;
-    logic rst = 0;
+    logic rst = 1;
 
     logic rx;
     logic tx;
@@ -172,9 +172,9 @@ module tb_uart_loopback_top;
 
         // Reset del sistema
         $display("[%0t] Aplicando reset...", $time);
-        rst = 1;
-        repeat(20) @(posedge clk);
         rst = 0;
+        repeat(20) @(posedge clk);
+        rst = 1;
         repeat(100) @(posedge clk);
         $display("[%0t] Reset completado\n", $time);
 
