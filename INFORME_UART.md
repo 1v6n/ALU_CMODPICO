@@ -963,10 +963,16 @@ La testbench valida múltiples aspectos del sistema:
 
 <p align="center">
   <a>
-    <img src="imgs/uart_top_rtl.jpg" alt="UART Top RTL">
+    <img src="imgs/uart_rtl.jpg" alt="UART Top RTL">
   </a>
 </p>
 
-# PLACEHOLDER
+### 4.7 Esquemático del Módulo uart_top
+
+<p align="center">
+  <a>
+    <img src="imgs/uart_sch.png" alt="UART Top RTL">
+  </a>
+</p>
 
 ---
