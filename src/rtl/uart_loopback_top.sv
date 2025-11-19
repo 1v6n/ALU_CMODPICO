@@ -156,90 +156,76 @@ module uart_loopback_top
     );
 
     // ========================================================================
-    // Lógica de loopback, control de lectura compartida y reporte de resultados
+    // Respuesta UART: reportar resultado/flags sin loopback
     // ========================================================================
-    typedef enum logic [1:0] {
-        REPORT_IDLE,
-        REPORT_SEND_RESULT,
-        REPORT_SEND_FLAGS
-    } report_state_t;
+    typedef enum logic [2:0] {
+        RESP_IDLE,
+        RESP_STX,
+        RESP_PAYLOAD,
+        RESP_FLAGS,
+        RESP_ETX
+    } resp_state_t;
 
-    report_state_t         report_state;
-    logic [DATA_BITS-1:0]  report_result_active;
-    logic [1:0]            report_flags_active;
-    logic [DATA_BITS-1:0]  report_result_queue;
-    logic [1:0]            report_flags_queue;
-    logic                  report_queue_valid;
-    logic                  report_byte_sent;
+    resp_state_t        resp_state;
+    logic [DATA_BITS-1:0] pending_result;
+    logic [1:0]          pending_flags;
+    logic                resp_pending;
 
-    assign read_en_rx_top = alu_rx_read_en && !tx_fifo_full;
-
-    always_ff @(posedge clk) begin
-        if (rst_n) begin
-            report_state        <= REPORT_IDLE;
-            report_queue_valid  <= 1'b0;
-            report_result_active<= '0;
-            report_flags_active <= '0;
-            report_result_queue <= '0;
-            report_flags_queue  <= '0;
-        end else begin
-            if (alu_exec_pulse) begin
-                if (report_state == REPORT_IDLE && !report_queue_valid) begin
-                    report_result_active <= alu_result;
-                    report_flags_active  <= {alu_zero, alu_cout};
-                    report_state         <= REPORT_SEND_RESULT;
-                end else begin
-                    report_result_queue <= alu_result;
-                    report_flags_queue  <= {alu_zero, alu_cout};
-                    report_queue_valid  <= 1'b1;
-                end
-            end
-
-            case (report_state)
-                REPORT_SEND_RESULT: begin
-                    if (report_byte_sent) begin
-                        report_state <= REPORT_SEND_FLAGS;
-                    end
-                end
-                REPORT_SEND_FLAGS: begin
-                    if (report_byte_sent) begin
-                        if (report_queue_valid) begin
-                            report_result_active <= report_result_queue;
-                            report_flags_active  <= report_flags_queue;
-                            report_queue_valid   <= 1'b0;
-                            report_state         <= REPORT_SEND_RESULT;
-                        end else begin
-                            report_state <= REPORT_IDLE;
-                        end
-                    end
-                end
-                default: ;
-            endcase
-        end
-    end
+    assign read_en_rx_top = alu_rx_read_en;  // solo ALU consume RX FIFO
 
     always_ff @(posedge clk) begin
         if (rst_n) begin
+            resp_state      <= RESP_IDLE;
+            pending_result  <= '0;
+            pending_flags   <= '0;
+            resp_pending    <= 1'b0;
             write_en_tx_top <= 1'b0;
             tx_data_in      <= '0;
-            report_byte_sent<= 1'b0;
         end else begin
             write_en_tx_top <= 1'b0;
-            report_byte_sent<= 1'b0;
-
-            if (data_valid_rx) begin
-                tx_data_in      <= data_out_rx;
-                write_en_tx_top <= 1'b1;
-            end else if (!tx_fifo_full && report_state != REPORT_IDLE) begin
-                write_en_tx_top <= 1'b1;
-                report_byte_sent<= 1'b1;
-
-                case (report_state)
-                    REPORT_SEND_RESULT: tx_data_in <= report_result_active;
-                    REPORT_SEND_FLAGS:  tx_data_in <= {6'b0, report_flags_active};
-                    default:            tx_data_in <= 8'h00;
-                endcase
+            if (alu_exec_pulse) begin
+                pending_result <= alu_result;
+                pending_flags  <= {alu_zero, alu_cout};
+                resp_pending   <= 1'b1;
             end
+
+            case (resp_state)
+                RESP_IDLE: begin
+                    if (resp_pending) begin
+                        resp_state   <= RESP_STX;
+                    end
+                end
+                RESP_STX: begin
+                    if (!tx_fifo_full) begin
+                        tx_data_in      <= 8'h02; // STX
+                        write_en_tx_top <= 1'b1;
+                        resp_state      <= RESP_PAYLOAD;
+                    end
+                end
+                RESP_PAYLOAD: begin
+                    if (!tx_fifo_full) begin
+                        tx_data_in      <= pending_result;
+                        write_en_tx_top <= 1'b1;
+                        resp_state      <= RESP_FLAGS;
+                    end
+                end
+                RESP_FLAGS: begin
+                    if (!tx_fifo_full) begin
+                        tx_data_in      <= {6'b0, pending_flags};
+                        write_en_tx_top <= 1'b1;
+                        resp_state      <= RESP_ETX;
+                    end
+                end
+                RESP_ETX: begin
+                    if (!tx_fifo_full) begin
+                        tx_data_in      <= 8'h03; // ETX
+                        write_en_tx_top <= 1'b1;
+                        resp_state      <= RESP_IDLE;
+                        resp_pending    <= 1'b0;
+                    end
+                end
+                default: resp_state <= RESP_IDLE;
+            endcase
         end
     end
 
