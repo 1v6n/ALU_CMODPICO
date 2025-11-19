@@ -91,6 +91,32 @@ module uart_loopback_top
     logic              parity_error;
     logic              frame_error;
 
+    // Interface hacia la FSM de ALU
+    logic                  alu_rx_read_en;
+    logic [DATA_BITS-1:0]  alu_result;
+    logic                  alu_cout;
+    logic                  alu_zero;
+    logic                  alu_exec_pulse;
+
+    // ========================================================================
+    // Instancia de la FSM que conecta la UART con la ALU
+    // ========================================================================
+    alu_top_fsm #(
+        .DATA_WIDTH     (DATA_BITS),
+        .OPCODE_WIDTH   (6)
+    ) u_alu_top_fsm (
+        .clk             (clk),
+        .rst             (rst_n),
+        .rx_fifo_read_en (alu_rx_read_en),
+        .rx_fifo_empty   (rx_fifo_empty),
+        .rx_fifo_data_valid(data_valid_rx),
+        .rx_fifo_data    (data_out_rx),
+        .alu_result      (alu_result),
+        .alu_cout        (alu_cout),
+        .alu_zero        (alu_zero),
+        .alu_exec_pulse  (alu_exec_pulse)
+    );
+
     // ========================================================================
     // Instancia del módulo uart_top
     // ========================================================================
@@ -130,58 +156,90 @@ module uart_loopback_top
     );
 
     // ========================================================================
-    // Lógica de loopback: transfiere datos de FIFO_RX a FIFO_TX
+    // Lógica de loopback, control de lectura compartida y reporte de resultados
     // ========================================================================
-    
-    /**
-     * @brief Máquina de estados de loopback
-     * @details Estados:
-     * - S_IDLE: Espera a que haya dato en RX y espacio en TX
-     * - S_WAIT_DATA: Espera a que data_valid_rx se active
-     * 
-     * Funcionamiento:
-     * 1. En S_IDLE: si !rx_fifo_empty && !tx_fifo_full → genera read_en_rx_top
-     * 2. En S_WAIT_DATA: espera data_valid_rx → copia dato a tx_data_in y genera write_en_tx_top
-     * 3. Vuelve a S_IDLE
-     */
     typedef enum logic [1:0] {
-        S_IDLE,
-        S_WAIT_DATA
-    } loopback_state_t;
+        REPORT_IDLE,
+        REPORT_SEND_RESULT,
+        REPORT_SEND_FLAGS
+    } report_state_t;
 
-    loopback_state_t loopback_state;
+    report_state_t         report_state;
+    logic [DATA_BITS-1:0]  report_result_active;
+    logic [1:0]            report_flags_active;
+    logic [DATA_BITS-1:0]  report_result_queue;
+    logic [1:0]            report_flags_queue;
+    logic                  report_queue_valid;
+    logic                  report_byte_sent;
+
+    assign read_en_rx_top = alu_rx_read_en && !tx_fifo_full;
 
     always_ff @(posedge clk) begin
         if (rst_n) begin
-            loopback_state   <= S_IDLE;
-            write_en_tx_top  <= 1'b0;
-            read_en_rx_top   <= 1'b0;
-            tx_data_in       <= '0;
+            report_state        <= REPORT_IDLE;
+            report_queue_valid  <= 1'b0;
+            report_result_active<= '0;
+            report_flags_active <= '0;
+            report_result_queue <= '0;
+            report_flags_queue  <= '0;
         end else begin
-            // Por defecto, desactivar pulsos
-            write_en_tx_top  <= 1'b0;
-            read_en_rx_top   <= 1'b0;
+            if (alu_exec_pulse) begin
+                if (report_state == REPORT_IDLE && !report_queue_valid) begin
+                    report_result_active <= alu_result;
+                    report_flags_active  <= {alu_zero, alu_cout};
+                    report_state         <= REPORT_SEND_RESULT;
+                end else begin
+                    report_result_queue <= alu_result;
+                    report_flags_queue  <= {alu_zero, alu_cout};
+                    report_queue_valid  <= 1'b1;
+                end
+            end
 
-            case (loopback_state)
-                S_IDLE: begin
-                    // Si hay dato en FIFO_RX y espacio en FIFO_TX
-                    if (!rx_fifo_empty && !tx_fifo_full) begin
-                        read_en_rx_top  <= 1'b1;        // Solicitar lectura
-                        loopback_state  <= S_WAIT_DATA;
+            case (report_state)
+                REPORT_SEND_RESULT: begin
+                    if (report_byte_sent) begin
+                        report_state <= REPORT_SEND_FLAGS;
                     end
                 end
-
-                S_WAIT_DATA: begin
-                    // Esperar a que el dato sea válido
-                    if (data_valid_rx) begin
-                        tx_data_in       <= data_out_rx;  // Copiar dato recibido
-                        write_en_tx_top  <= 1'b1;         // Escribir en FIFO_TX
-                        loopback_state   <= S_IDLE;       // Volver a idle
+                REPORT_SEND_FLAGS: begin
+                    if (report_byte_sent) begin
+                        if (report_queue_valid) begin
+                            report_result_active <= report_result_queue;
+                            report_flags_active  <= report_flags_queue;
+                            report_queue_valid   <= 1'b0;
+                            report_state         <= REPORT_SEND_RESULT;
+                        end else begin
+                            report_state <= REPORT_IDLE;
+                        end
                     end
                 end
-
-                default: loopback_state <= S_IDLE;
+                default: ;
             endcase
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (rst_n) begin
+            write_en_tx_top <= 1'b0;
+            tx_data_in      <= '0;
+            report_byte_sent<= 1'b0;
+        end else begin
+            write_en_tx_top <= 1'b0;
+            report_byte_sent<= 1'b0;
+
+            if (data_valid_rx) begin
+                tx_data_in      <= data_out_rx;
+                write_en_tx_top <= 1'b1;
+            end else if (!tx_fifo_full && report_state != REPORT_IDLE) begin
+                write_en_tx_top <= 1'b1;
+                report_byte_sent<= 1'b1;
+
+                case (report_state)
+                    REPORT_SEND_RESULT: tx_data_in <= report_result_active;
+                    REPORT_SEND_FLAGS:  tx_data_in <= {6'b0, report_flags_active};
+                    default:            tx_data_in <= 8'h00;
+                endcase
+            end
         end
     end
 

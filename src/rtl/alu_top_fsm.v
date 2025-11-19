@@ -10,50 +10,25 @@
  */
 module alu_top_fsm #(
     //! @brief Parámetros de configuración
-    parameter int DATA_WIDTH   = 8,
-    parameter int OPCODE_WIDTH = 6,
-    parameter int UART_FIFO_DEPTH = 16
+    parameter integer DATA_WIDTH   = 8,
+    parameter integer OPCODE_WIDTH = 6
 ) (
     //! @brief Señales de reloj y reset
     input  wire clk,
     input  wire rst,
 
-    //! @brief Interfaz UART RX ready/valid
-    input  wire [7:0] uart_rx_data,
-    input  wire       uart_rx_valid,
-    output wire       uart_rx_ready,
+    //! @brief Interfaz FIFO proveniente de uart_top
+    output wire      rx_fifo_read_en,
+    input  wire      rx_fifo_empty,
+    input  wire      rx_fifo_data_valid,
+    input  wire [7:0] rx_fifo_data,
 
     //! @brief Resultados hacia el exterior
     output wire [DATA_WIDTH-1:0] alu_result,
     output wire                  alu_cout,
-    output wire                  alu_zero
+    output wire                  alu_zero,
+    output wire                  alu_exec_pulse
 );
-
-    //! @brief FIFO RX 
-    wire rx_fifo_read_en;
-    wire rx_fifo_empty;
-    wire rx_fifo_full;
-    wire rx_fifo_data_valid;
-    wire [7:0] rx_fifo_data;
-
-    //! @brief Instancia de la FIFO síncrona para almacenar datos recibidos por UART
-    sync_fifo #(
-        .DATA_WIDTH(8),
-        .DEPTH(UART_FIFO_DEPTH)
-    ) uart_rx_fifo (
-        .clk(clk),
-        .rst(rst),
-        .write_en(uart_rx_valid && uart_rx_ready),
-        .read_en(rx_fifo_read_en),
-        .data_in(uart_rx_data),
-        .data_out(rx_fifo_data),
-        .data_valid(rx_fifo_data_valid),
-        .full(rx_fifo_full),
-        .empty(rx_fifo_empty),
-        .level()
-    );
-
-    assign uart_rx_ready = !rx_fifo_full;   //!< Listo para recibir si la FIFO no está llena    
 
     //! @brief Decoder UART -> pulsos de carga ALU
     wire [DATA_WIDTH-1:0] alu_data;
@@ -101,5 +76,7 @@ module alu_top_fsm #(
         .result_led_g_n(),
         .result_led_r_n()
     );
+
+    assign alu_exec_pulse = exec_pulse;
 
 endmodule
