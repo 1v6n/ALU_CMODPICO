@@ -26,20 +26,20 @@ module uart_loopback_top
     // ========================================================================
     // Señales de reloj y reset
     // ========================================================================
-    input  logic              clk,                     //!< Reloj del sistema (12 MHz)
-    input  logic              rst,                     //!< Reset síncrono activo por BAJO (botón con pullup)
+    input  wire               clk,                     //!< Reloj del sistema (12 MHz)
+    input  wire               rst,                     //!< Reset síncrono activo por BAJO (botón con pullup)
 
     // ========================================================================
     // Interfaz UART física (hacia/desde PC)
     // ========================================================================
-    input  logic              rx,                      //!< Línea serie de entrada desde PC
-    output logic              tx,                      //!< Línea serie de salida hacia PC
+    input  wire               rx,                      //!< Línea serie de entrada desde PC
+    output wire               tx,                      //!< Línea serie de salida hacia PC
 
     // ========================================================================
     // Indicadores LED (incorporados en la placa)
     // ========================================================================
-    output logic              led0,                    //!< LED0: indica rx_done_tick
-    output logic              led1                     //!< LED1: indica tx_done_tick
+    output reg                led0,                    //!< LED0: indica rx_done_tick
+    output reg                led1                     //!< LED1: indica tx_done_tick
 );
 
     // ========================================================================
@@ -60,7 +60,7 @@ module uart_loopback_top
      *   - Botón liberado  → rst=1 → rst_n=0 → OPERACIÓN NORMAL ✓
      *   - Botón presionado → rst=0 → rst_n=1 → RESET ACTIVO ✓
      */
-    logic rst_n;
+    wire rst_n;
     assign rst_n = ~rst;
 
     // ========================================================================
@@ -68,35 +68,35 @@ module uart_loopback_top
     // ========================================================================
     
     // Interfaz de transmisión
-    logic              write_en_tx_top;
-    logic [DATA_BITS-1:0] tx_data_in;
-    logic              tx_done_tick;
+    reg                write_en_tx_top;
+    reg [DATA_BITS-1:0] tx_data_in;
+    wire               tx_done_tick;
 
     // Interfaz de recepción
-    logic              read_en_rx_top;
-    logic [DATA_BITS-1:0] data_out_rx;
-    logic              data_valid_rx;
-    logic              rx_done_tick;
+    wire               read_en_rx_top;
+    wire [DATA_BITS-1:0] data_out_rx;
+    wire               data_valid_rx;
+    wire               rx_done_tick;
 
     // Estado de FIFOs
-    logic              rx_fifo_empty;
-    logic              rx_fifo_full;
-    logic [$clog2(FIFO_DEPTH+1)-1:0] rx_fifo_level;
+    wire               rx_fifo_empty;
+    wire               rx_fifo_full;
+    wire [$clog2(FIFO_DEPTH+1)-1:0] rx_fifo_level;
 
-    logic              tx_fifo_empty;
-    logic              tx_fifo_full;
-    logic [$clog2(FIFO_DEPTH+1)-1:0] tx_fifo_level;
+    wire               tx_fifo_empty;
+    wire               tx_fifo_full;
+    wire [$clog2(FIFO_DEPTH+1)-1:0] tx_fifo_level;
 
     // Errores (no usados en este diseño)
-    logic              parity_error;
-    logic              frame_error;
+    wire               parity_error;
+    wire               frame_error;
 
     // Interface hacia la FSM de ALU
-    logic                  alu_rx_read_en;
-    logic [DATA_BITS-1:0]  alu_result;
-    logic                  alu_cout;
-    logic                  alu_zero;
-    logic                  alu_exec_pulse;
+    wire                   alu_rx_read_en;
+    wire [DATA_BITS-1:0]   alu_result;
+    wire                   alu_cout;
+    wire                   alu_zero;
+    wire                   alu_exec_pulse;
 
     // ========================================================================
     // Instancia de la FSM que conecta la UART con la ALU
@@ -158,7 +158,7 @@ module uart_loopback_top
     // ========================================================================
     // Respuesta UART: reportar resultado/flags sin loopback
     // ========================================================================
-    typedef enum logic [2:0] {
+    typedef enum reg [2:0] {
         RESP_IDLE,
         RESP_STX,
         RESP_PAYLOAD,
@@ -166,10 +166,11 @@ module uart_loopback_top
         RESP_ETX
     } resp_state_t;
 
-    resp_state_t        resp_state;
-    logic [DATA_BITS-1:0] pending_result;
-    logic [1:0]          pending_flags;
-    logic                resp_pending;
+    resp_state_t         resp_state;
+    reg [DATA_BITS-1:0]  pending_result;
+    reg [1:0]            pending_flags;
+    reg                  resp_pending;
+    reg                  capture_wait;
 
     assign read_en_rx_top = alu_rx_read_en;  // solo ALU consume RX FIFO
 
@@ -179,29 +180,39 @@ module uart_loopback_top
             pending_result  <= '0;
             pending_flags   <= '0;
             resp_pending    <= 1'b0;
+            capture_wait    <= 1'b0;
             write_en_tx_top <= 1'b0;
             tx_data_in      <= '0;
         end else begin
-            write_en_tx_top <= 1'b0;
+            write_en_tx_top <= 1'b0; 
+            //!<  Capturar resultado ALU cuando esté listo
             if (alu_exec_pulse) begin
+                capture_wait <= 1'b1;
+            end
+            //!< Almacenar resultado y flags cuando estén listos
+            if (capture_wait) begin
                 pending_result <= alu_result;
                 pending_flags  <= {alu_zero, alu_cout};
                 resp_pending   <= 1'b1;
+                capture_wait   <= 1'b0;
             end
-
+            //!< FSM de respuesta UART
             case (resp_state)
+                //!< Espera
                 RESP_IDLE: begin
                     if (resp_pending) begin
                         resp_state   <= RESP_STX;
                     end
                 end
+                //!< Enviar STX
                 RESP_STX: begin
                     if (!tx_fifo_full) begin
-                        tx_data_in      <= 8'h02; // STX
+                        tx_data_in      <= 8'h02;
                         write_en_tx_top <= 1'b1;
                         resp_state      <= RESP_PAYLOAD;
                     end
                 end
+                //!< Enviar resultado ALU
                 RESP_PAYLOAD: begin
                     if (!tx_fifo_full) begin
                         tx_data_in      <= pending_result;
@@ -209,6 +220,7 @@ module uart_loopback_top
                         resp_state      <= RESP_FLAGS;
                     end
                 end
+                //!< Enviar flags ALU
                 RESP_FLAGS: begin
                     if (!tx_fifo_full) begin
                         tx_data_in      <= {6'b0, pending_flags};
@@ -216,6 +228,7 @@ module uart_loopback_top
                         resp_state      <= RESP_ETX;
                     end
                 end
+                //!< Enviar ETX
                 RESP_ETX: begin
                     if (!tx_fifo_full) begin
                         tx_data_in      <= 8'h03; // ETX
@@ -245,8 +258,8 @@ module uart_loopback_top
     
     localparam int LED_TIMEOUT_CYCLES = 1_200_000;  // ~100 ms @ 12 MHz
     
-    logic [$clog2(LED_TIMEOUT_CYCLES+1)-1:0] led0_counter;
-    logic [$clog2(LED_TIMEOUT_CYCLES+1)-1:0] led1_counter;
+    reg [$clog2(LED_TIMEOUT_CYCLES+1)-1:0] led0_counter;
+    reg [$clog2(LED_TIMEOUT_CYCLES+1)-1:0] led1_counter;
 
     // LED0: rx_done indicator
     always_ff @(posedge clk) begin

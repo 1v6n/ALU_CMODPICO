@@ -38,6 +38,7 @@ module alu_top_fsm #(
     wire exec_pulse;
     wire decoder_error;
 
+    //! @brief Instancia del decoder de paquetes UART
     uart_packet_decoder #(
         .DATA_WIDTH(DATA_WIDTH)
     ) uart_decoder (
@@ -56,7 +57,7 @@ module alu_top_fsm #(
         .packet_complete()
     );
 
-    //! @brief Instancia de la ALU top reutilizando el banco de registros
+    //! @brief Instancia de la ALU top
     alu_top #(
         .DATA_WIDTH(DATA_WIDTH),
         .OPCODE_WIDTH(OPCODE_WIDTH)
@@ -70,6 +71,7 @@ module alu_top_fsm #(
         .Result(alu_result),
         .Cout(alu_cout),
         .Zero(alu_zero),
+        .exec_pulse(alu_exec_pulse),
         .result_led0(),
         .result_led1(),
         .result_led_b_n(),

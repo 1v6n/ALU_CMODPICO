@@ -60,21 +60,23 @@ module uart_packet_decoder #(
     reg [DATA_WIDTH-1:0] buffer_sel;
 
     //! @brief Señales de control para la FIFO de entrada
-    logic fifo_read;
+    reg fifo_read;
 
     //! @brief Control de bytes consumidos
     reg [7:0] current_rx_byte;
     reg current_rx_valid;
 
     //! @brief Seguimiento de errores
-    logic invalid_cmd_error;
-    logic invalid_framing_error;
+    reg invalid_cmd_error;
+    reg invalid_framing_error;
 
-    typedef enum logic [1:0] {
+    typedef enum reg [2:0] {
         EXEC_IDLE,
         EXEC_LOAD_SEL,
         EXEC_LOAD_A,
-        EXEC_LOAD_B
+        EXEC_LOAD_B,
+        EXEC_WAIT_RESULT,
+        EXEC_DONE
     } exec_state_t;
 
     exec_state_t exec_state;
@@ -137,7 +139,7 @@ module uart_packet_decoder #(
             current_state <= next_state;
             exec_trigger  <= 1'b0;
 
-            //! @brief  Almacenar comando y datos inmediatamente cuando se lee un byte válido
+            //!<  Almacenar comando y datos inmediatamente cuando se lee un byte válido
             if (current_rx_valid) begin
                 case (current_state)
                     S1_RECV_CMD: stored_cmd <= current_rx_byte;
@@ -146,6 +148,7 @@ module uart_packet_decoder #(
                 endcase
             end
 
+            //!<  Ejecutar acción al recibir ETX válido
             if (current_state == S3_WAIT_END && current_rx_valid && current_rx_byte == 8'h03) begin
                 unique case (stored_cmd)
                     8'h41: buffer_a   <= stored_data;
@@ -226,8 +229,7 @@ module uart_packet_decoder #(
             exec_pulse_reg <= 1'b0;
 
             if (exec_trigger) begin
-                exec_pending   <= 1'b1;
-                exec_pulse_reg <= 1'b1;
+                exec_pending <= 1'b1;
             end
 
             case (exec_state)
@@ -249,8 +251,15 @@ module uart_packet_decoder #(
                 EXEC_LOAD_B: begin
                     load_b_reg   <= 1'b1;
                     alu_data_reg <= buffer_b;
-                    exec_state   <= EXEC_IDLE;
-                    exec_pending <= 1'b0;
+                    exec_state   <= EXEC_WAIT_RESULT;
+                end
+                EXEC_WAIT_RESULT: begin
+                    exec_state   <= EXEC_DONE;
+                end
+                EXEC_DONE: begin
+                    exec_pulse_reg <= 1'b1;
+                    exec_pending   <= 1'b0;
+                    exec_state     <= EXEC_IDLE;
                 end
                 default: exec_state <= EXEC_IDLE;
             endcase
