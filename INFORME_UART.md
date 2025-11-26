@@ -2,6 +2,8 @@
   <a>
     <img src="imgs/Logo.png" alt="Logo">
   </a>
+</p>
+<p align="center"><em>Identidad visual del proyecto UART + ALU</em></p>
 
 ***TRABAJO PRACTICO 2***
 
@@ -128,6 +130,8 @@ Margen de seguridad = 153.6 / 19.2 = 8x sobre el mínimo teórico
   <a>
     <img src="imgs/baudrate_gen_rtl.jpg" alt="Baudrate_Generator">
   </a>
+</p>
+<p align="center"><em>Implementación RTL del generador de baudrate</em></p>
 
 En este diseño, tanto el transmisor (TX) como el receptor (RX) utilizan la señal `baud_x16_tick`, un pulso de oversampling a 16× la frecuencia del baudrate. Si bien el TX podría haberse implementado con `baud_tick` (1×), ya que siempre debe esperar 16 ciclos por bit por el oversampling, se decidió emplear `baud_x16_tick` para mantener coherencia con el RX y seguir el enfoque de la bibliografía.
 
@@ -249,6 +253,8 @@ En sistemas que requieren buffering de múltiples transmisiones (como cuando la 
   <a>
     <img src="imgs/ALU-FIFO-TX.jpg" alt="Flujo ALU-FIFO-TX">
   </a>
+</p>
+<p align="center"><em>Flujo de datos ALU → FIFO → UART TX</em></p>
 
 #### **Señales de la Interfaz FIFO**
 
@@ -310,6 +316,15 @@ Este estado adicional garantiza que el TX **siempre capture el dato correcto** d
 - **Backpressure implícito**: Si FIFO está vacía (write_o=0), TX espera en IDLE
 - **Sincronización automática**: S_LOAD compensa latencia de FIFO sin intervención externa
 
+<p align="center">
+  <a>
+    <img src="imgs/FIFO.png" alt="FIFO síncrona utilizada por los caminos RX/TX">
+  </a>
+</p>
+<p align="center"><em>Detalle de la FIFO síncrona compartida entre RX y TX</em></p>
+
+El bloque `sync_fifo.sv`, ilustrado en la figura, es el responsable de que el handshaking anterior funcione. Su implementación registra `data_out` y `data_valid`, de modo que la lectura ocurre exactamente un ciclo después del pulso `read_en`. Esta latencia fija explica la necesidad del estado `S_LOAD` y garantiza que el TX nunca capture datos no estables aun cuando la ALU escriba y lea simultáneamente desde el mismo buffer.
+
 ### 2.4 Comparación: Latch vs. Modo FIFO
 
 | **Aspecto / Característica** | **Modo Pulso / Latch (tx_start)**                          | **Modo FIFO (write_o / read_en)**                       |
@@ -369,8 +384,9 @@ La FSM del transmisor UART implementa el protocolo de serialización mediante lo
   <a>
     <img src="imgs/tx_asmdp.jpg" alt="Tx_FSM">
   </a>
+</p>
+<p align="center"><em>Máquina de estados del transmisor UART</em></p>
 
-# ACTUALIZAR
 
 #### **Tablas de Temporización**
 
@@ -482,8 +498,11 @@ Con `ENABLE_FIFO_MODE=1`, testbench ejecuta **6 tests adicionales** por modo de 
 
 <p align="center">
   <a>
-    <img src="imgs/tx_rtl.jpg" alt="Transmitter">
+    <img src="imgs/tx_rtl.jpg" alt="Diagrama RTL del UART TX">
   </a>
+</p>
+<p align="center"><em>Vista RTL sintetizada del transmisor uart_tx</em></p>
+
 
 ---
 
@@ -709,6 +728,8 @@ La FSM del receptor UART implementa un protocolo de recepción secuencial que ma
   <a>
     <img src="imgs/rx_asmdp.jpg" alt="Receiver ASMDP">
   </a>
+</p>
+<p align="center"><em>Máquina de estados del receptor uart_rx</em></p>
 
 ### 3.7 Verificación Exhaustiva: Testbench del Receptor UART
 
@@ -813,6 +834,8 @@ En un sistema bidireccional completo, cada dispositivo tiene un TX y un RX opera
   <a>
     <img src="imgs/rx_rtl.jpg" alt="Receiver">
   </a>
+</p>
+<p align="center"><em>Vista RTL sintetizada del receptor uart_rx</em></p>
 
 ---
 
@@ -959,20 +982,138 @@ La testbench valida múltiples aspectos del sistema:
 - Señales `write_o`, `read_en` funcionan correctamente
 - Handshakes entre módulos sin race conditions
 
-### 4.6 Diagrama del Módulo uart_top
+### 4.5 Diagrama del Módulo uart_top
 
 <p align="center">
   <a>
     <img src="imgs/uart_rtl.jpg" alt="UART Top RTL">
   </a>
 </p>
+<p align="center"><em>Representación RTL sintetizada del módulo uart_top</em></p>
 
-### 4.7 Esquemático del Módulo uart_top
+### 4.6 Esquemático del Módulo uart_top
 
 <p align="center">
   <a>
     <img src="imgs/uart_sch.png" alt="UART Top RTL">
   </a>
 </p>
+<p align="center"><em>Esquemático jerárquico de uart_top dentro de Vivado</em></p>
 
 ---
+
+## 5. Módulos de Integración UART ↔ ALU
+
+<p align="center">
+  <a>
+    <img src="imgs/System_Arquitecture.png" alt="Arquitectura completa UART ↔ ALU">
+  </a>
+</p>
+<p align="center"><em>Arquitectura completa que enlaza UART, FIFOs y ALU</em></p>
+
+Los módulos de nivel superior encapsulan la interacción entre la UART parametrizable y la lógica de la ALU. Esta sección describe su rol, interconexiones y estados internos más relevantes.
+
+### 5.1 `uart_loopback_top.sv`: Respuesta Serial con Indicadores
+
+El archivo `src/rtl/uart_loopback_top.sv` implementa el “top” cargado en la FPGA para las pruebas de laboratorio. Sus funciones principales son:
+
+- **Instanciar `uart_top` y `alu_top_fsm`** sobre el reloj de 12 MHz, compartiendo las FIFOs internas para desacoplar los dominios de velocidad.
+- **Gestionar el reset físico de la placa** invirtiendo el botón activo en bajo (`rst_n = ~rst`) para reutilizar módulos que esperan reset activo en alto.
+- **FSM de respuesta (`RESP_IDLE … RESP_ETX`)**: cada vez que `alu_exec_pulse` se eleva, la lógica captura el resultado y los flags `{zero, cout}` y los empaqueta en un frame `[STX][RESULT][FLAGS][ETX]`. La señal `write_en_tx_top` sólo se afirma cuando `tx_fifo_full=0`, asegurando que la FIFO de transmisión no se desborde.
+- **Indicadores LED temporizados**: dos contadores de ~100 ms mantienen `led0` encendido tras un `rx_done_tick` y `led1` tras `tx_done_tick`, lo que facilita el debug visual sin depender del terminal serie.
+
+En conjunto, este módulo demuestra cómo la UART puede responder automáticamente a cada ejecución de la ALU sin requerir firmware adicional: recibe comandos desde el host, los procesa mediante `alu_top_fsm` y publica el resultado en cuanto está disponible.
+
+### 5.2 `uart_packet_decoder.sv`: FSM de Decodificación de Paquetes
+
+<p align="center">
+  <a>
+    <img src="imgs/UART_Packet_Decoder.png" alt="FSM conceptual del decoder UART">
+  </a>
+</p>
+<p align="center"><em>FSM conceptual del módulo uart_packet_decoder</em></p>
+
+El módulo (`src/rtl/uart_packet_decoder.sv`) consume bytes almacenados en la RX FIFO y reconoce tramas `[0x02][CMD][DATA][0x03]`. Sus características más importantes son:
+
+- **FSM de 4 estados (`WAIT_START`, `RECV_CMD`, `RECV_DATA`, `WAIT_END`)** que valida STX/ETX y rechaza comandos fuera del conjunto `{A,B,C,E}`. Los bytes válidos se almacenan en `buffer_a`, `buffer_b` y `buffer_sel`.
+- **Secuenciador de ejecución**: un segundo `exec_state` convierte el comando `E` en la serie de pulsos `load_sel`, `load_a`, `load_b` y luego `exec_pulse`, respetando la restricción de que sólo hay un bus `alu_data`.
+- **Flags de error** (`decoder_error` y `packet_complete`) que permiten al firmware distinguir entre paquetes aceptados y descartados.
+
+<p align="center">
+  <a>
+    <img src="imgs/Simulation_UART.png" alt="Simulación de tb_uart_packet_decoder en Vivado">
+  </a>
+</p>
+<p align="center"><em>Captura del testbench tb_uart_packet_decoder</em></p>
+
+La figura anterior corresponde al testbench `tb_uart_packet_decoder.sv`: se observan los bytes en `rx_fifo_data` y la activación secuencial de `load_*`/`exec_pulse`, confirmando que la FSM aplica el protocolo descrito. 
+
+<p align="center">
+  <a>
+    <img src="imgs/Uart Decoder.png" alt="Diagrama RTL del módulo uart_packet_decoder.sv">
+  </a>
+</p>
+<p align="center"><em>Diagrama RTL sintetizado de uart_packet_decoder</em></p>
+
+### 5.3 `alu_top_fsm.v`: Puente hacia la ALU Parametrizable
+
+<p align="center">
+  <a>
+    <img src="imgs/ALU_UART_Interface.png" alt="FSM principal que interactúa con la ALU">
+  </a>
+</p>
+<p align="center"><em>FSM principal que integra la ALU con la UART</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/ALU_Top_FSM.png" alt="Interfaz del módulo ALU Top FSM">
+  </a>
+</p>
+<p align="center"><em>Diagrama de bloques del módulo alu_top_fsm</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Uart_loopback_top.png" alt="Interfaz del módulo UART Loopback TOP">
+  </a>
+</p>
+<p align="center"><em>Bloque principal uart_loopback_top con puertos físicos</em></p>
+
+Este top, `src/rtl/uart_loopback_top.v`, encapsula la ruta PC↔ALU↔PC: recibe comandos por `rx`, resetea internamente con `rst` y `clk`, delega la decodificación a `alu_top_fsm` y entrega frames de respuesta por `tx` mientras expone actividad mediante `led0`/`led1`.
+
+El módulo `src/rtl/alu_top_fsm.v` integra `uart_packet_decoder` con `alu_top`. Resumen de su implementación:
+
+- **Reuso del decoder como submódulo**: expone `rx_fifo_read_en`/`rx_fifo_data` al exterior para que el `uart_top` pueda alimentarlo directamente.
+- **Instancia de `alu_top`**: recibe el bus `alu_data` y los pulsos de carga y entrega `alu_result`, `alu_cout`, `alu_zero`.
+- **Propagación del `exec_pulse`**: el pulso generado por el decoder se expone como `alu_exec_pulse`, reutilizado por `uart_loopback_top` para saber cuándo capturar el resultado.
+- **Separación de responsabilidades**: `alu_top_fsm` no modifica los datos, sólo coordina tiempos y mantiene la lectura del FIFO sincronizada con las ejecuciones, evitando ciclos muertos entre cargas.
+
+Estos módulos (loopback_top, packet_decoder y alu_top_fsm) conforman la capa de control que hace posible manejar la ALU vía UART.
+
+---
+
+## 6. Validación en Hardware sobre CMOD A7 con Scripts Python
+
+La verificación final se realiza conectando directamente la UART de la Cmod A7 al host, en nuestro caso el PC. Dos scripts en `scripts/` automatizan tanto las pruebas regresivas como la interacción manual:
+
+1. `python3 scripts/alu_uart_serial_test.py --port /dev/ttyUSB0`: recorre todas las operaciones de la ALU con operandos controlados, evalúa las respuestas de la FPGA y compara los flags reportados contra un "golden model" en Python.
+2. `python3 scripts/alu_uart_tui_curses.py --port /dev/ttyUSB0`: expone una interfaz interactiva en formato TUI que permite modificar operandos/opcode en tiempo real, observar el resultado y monitorear los flags `ZERO` y `CARRY`.
+
+### 6.1 Procedimiento de Prueba Automática
+
+El script `alu_uart_serial_test.py` implementa los mismos frames `[STX][CMD][DATA][ETX]` utilizados en los testbenches. Cada iteración realiza:
+
+1. Envío secuencial de `C`, `A`, `B` y `E` con datos previamente calculados.
+2. Lectura de los dos frames retornados por el `uart_tx` (resultado + flags) y verificación de paridad.
+3. Registro en consola de cualquier discrepancia, con la operación que la produjo.
+
+Con esto se obtiene evidencia directa de que el RTL sintetizado y cargado en la FPGA responde igual que la simulación.
+
+### 6.2 Interacción Manual con TUI
+
+El script `alu_uart_tui_curses.py` facilita la interacción manual mediante un TUI. Consiste en lo siguiente:
+
+- Valores actuales de operandos y opcode
+- Resultado y flags entregados por la UART
+
+Permite realizar operaciones de forma manual, agilizando la exploración de casos límite (por ejemplo, overflow o borrow) y como un test básico para entender el funcionamiento de la implementación.
+

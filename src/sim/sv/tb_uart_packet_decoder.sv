@@ -277,12 +277,12 @@ module tb_uart_packet_decoder;
       enviar_paquete(8'h42, 8'h05);
       @(posedge clk);
 
-      $display("=== Caso 2: Ejecutar (orden S,A,B) ===");
+      $display("=== Caso 2: Ejecutar (orden S,A,B y luego EXEC) ===");
       enviar_paquete(8'h45, 8'h00);
-      esperar_pulso("E", 8'h00);
       esperar_pulso("C", 8'h20);
       esperar_pulso("A", 8'h12);
       esperar_pulso("B", 8'h05);
+      esperar_pulso("E", 8'h00);
 
       $display("=== Caso 3: comando inválido ===");
       enviar_byte(8'h02);
@@ -298,15 +298,15 @@ module tb_uart_packet_decoder;
       enviar_byte(8'h00);
       esperar_error("Error por ETX inválido");
 
-      $display("=== Caso 5: Nueva configuración y ejecución ===");
+      $display("=== Caso 5: Nueva configuración y ejecución (orden S,A,B y luego EXEC) ===");
       enviar_paquete(8'h43, 8'h26);
       enviar_paquete(8'h41, 8'hAA);
       enviar_paquete(8'h42, 8'h55);
       enviar_paquete(8'h45, 8'h00);
-      esperar_pulso("E", 8'h00);
       esperar_pulso("C", 8'h26);
       esperar_pulso("A", 8'hAA);
       esperar_pulso("B", 8'h55);
+      esperar_pulso("E", 8'h00);
 
       mostrar_resumen();
       $finish;
