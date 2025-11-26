@@ -1024,6 +1024,15 @@ El archivo `src/rtl/uart_loopback_top.sv` implementa el “top” cargado en la 
 
 En conjunto, este módulo demuestra cómo la UART puede responder automáticamente a cada ejecución de la ALU sin requerir firmware adicional: recibe comandos desde el host, los procesa mediante `alu_top_fsm` y publica el resultado en cuanto está disponible.
 
+<p align="center">
+  <a>
+    <img src="imgs/Uart_Response_FSM.png" alt="FSM de respuesta UART">
+  </a>
+</p>
+<p align="center"><em>FSM que encapsula la respuesta `[STX][RESULT][FLAGS][ETX]`</em></p>
+
+El diagrama muestra la secuencia `RESP_IDLE → RESP_STX → RESP_PAYLOAD → RESP_FLAGS → RESP_ETX`. Cada transición se habilita únicamente cuando `tx_fifo_full=0`, asegurando que el módulo no intente escribir en una FIFO llena mientras arma el paquete con el resultado y los flags.
+
 ### 5.2 `uart_packet_decoder.sv`: FSM de Decodificación de Paquetes
 
 <p align="center">
@@ -1087,6 +1096,27 @@ El módulo `src/rtl/alu_top_fsm.v` integra `uart_packet_decoder` con `alu_top`. 
 - **Propagación del `exec_pulse`**: el pulso generado por el decoder se expone como `alu_exec_pulse`, reutilizado por `uart_loopback_top` para saber cuándo capturar el resultado.
 - **Separación de responsabilidades**: `alu_top_fsm` no modifica los datos, sólo coordina tiempos y mantiene la lectura del FIFO sincronizada con las ejecuciones, evitando ciclos muertos entre cargas.
 
+<p align="center">
+  <a>
+    <img src="imgs/Alu_execution_fsm.png" alt="FSM de ejecución en alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Secuencia de carga y disparo de la ALU dentro de alu_top_fsm</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Alu_top_fsm_in.png" alt="Entradas RTL de alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Conexiones de entrada entre `uart_packet_decoder` y `alu_top`</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Alu_top_fsm_out.png" alt="Salidas RTL de alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Salidas propagadas a la ALU y al wrapper superior</em></p>
+
 Estos módulos (loopback_top, packet_decoder y alu_top_fsm) conforman la capa de control que hace posible manejar la ALU vía UART.
 
 ---
@@ -1116,4 +1146,3 @@ El script `alu_uart_tui_curses.py` facilita la interacción manual mediante un T
 - Resultado y flags entregados por la UART
 
 Permite realizar operaciones de forma manual, agilizando la exploración de casos límite (por ejemplo, overflow o borrow) y como un test básico para entender el funcionamiento de la implementación.
-
