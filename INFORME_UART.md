@@ -104,10 +104,10 @@ Esta división exacta elimina completamente el error de cuantización, proporcio
 
 El oversampling es una técnica que consiste en muestrear la señal de entrada múltiples veces durante cada período de bit. Esto proporciona varios beneficios:
 
-- **Tolerancia a variaciones de frecuencia**: Compensa pequeñas diferencias entre los relojes del transmisor y receptor
+- **Tolerancia a variaciones de frecuencia**: Tolera pequeñas diferencias entre los relojes del transmisor y receptor
 - **Inmunidad al ruido**
 - **Detección de partes de la trama**: Facilita la identificación de bits de start, data y stop
-- **Sincronización robusta**: Permite encontrar el centro óptimo de cada bit para el muestreo
+- **Sincronización de muestreo**: Permite muestrear en el centro óptimo de cada bit
 
 #### **Justificación del Factor de Oversampling 16x**
 
@@ -133,23 +133,23 @@ Margen de seguridad = 153.6 / 19.2 = 8x sobre el mínimo teórico
 </p>
 <p align="center"><em>Implementación RTL del generador de baudrate</em></p>
 
-En este diseño, tanto el transmisor (TX) como el receptor (RX) utilizan la señal `baud_x16_tick`, un pulso de oversampling a 16× la frecuencia del baudrate. Si bien el TX podría haberse implementado con `baud_tick` (1×), ya que siempre debe esperar 16 ciclos por bit por el oversampling, se decidió emplear `baud_x16_tick` para mantener coherencia con el RX y seguir el enfoque de la bibliografía.
+En este diseño, tanto el transmisor (TX) como el receptor (RX) utilizan la señal `baud_x16_tick`, un pulso de oversampling a 16× la frecuencia del baudrate. El TX podría haberse implementado directamente con `baud_tick` (1×), pero usa `baud_x16_tick` para mantener coherencia temporal con el RX y seguir el enfoque de la bibliografía.
 
-En contraste, el RX sí requiere estrictamente oversampling ×16: su FSM muestrea el bit de start en el tick 8 y los bits de datos, paridad y stop cada 16 ticks completos, lo que permite sincronización precisa y tolerancia a variaciones de baudrate.
+El RX requiere oversampling ×16: su FSM muestrea el bit de start en el tick 8 y los bits de datos, paridad y stop cada 16 ticks completos, lo que permite sincronización precisa y tolerancia a variaciones de baudrate.
 
-En síntesis, aunque ambos módulos usan `baud_x16_tick`, en el TX se hace por uniformidad, mientras que en el RX es una necesidad funcional. La existencia simultánea de baud_tick y baud_x16_tick preserva flexibilidad en el diseño.
+Disponer tanto de `baud_tick` como de `baud_x16_tick` permite verificar y configurar cada módulo de forma independiente.
 
 ---
 
 ## Módulo Transmisor (TX)
 
-### 2.1 Importancia del Transmisor UART y Relación con Baudrate Generator
+### 2.1 Transmisor UART y Relación con Baudrate Generator
 
-El módulo transmisor UART (TX) constituye el componente crítico responsable de la serialización y transmisión de datos paralelos a través de un canal serie asíncrono. Su función principal consiste en convertir palabras de datos de ancho parametrizable (típicamente 8 bits) junto con flags de estado (zero y carry de la ALU) en una secuencia serial temporizada que cumple con el estándar UART.
+El módulo transmisor UART (`uart_tx.sv`) serializa datos paralelos (8 bits de resultado o flags de estado de la ALU) en una línea serie asíncrona bajo el estándar UART.
 
 #### **Frame UART: Estructura y Componentes**
 
-Un frame UART es la unidad fundamental de transmisión en el protocolo UART. La estructura implementada en este diseño transmite **dos frames consecutivos** para cada resultado de la ALU:
+El diseño transmite **dos frames consecutivos** para cada resultado de la ALU:
 
 **Frame 1 (Datos):**
 ```
@@ -182,26 +182,12 @@ Un frame UART es la unidad fundamental de transmisión en el protocolo UART. La 
 - Facilita la integración con FIFO estándar (cada entrada es un byte completo)
 - Mantiene compatibilidad con herramientas UART estándar para el frame de datos
 
-#### **Dependencia del Baudrate Generator**
+#### **Sincronización con el Generador de Baudrate**
 
-El transmisor UART opera en estrecha sincronización con el baudrate generator mediante la señal `baud_tick`. Esta relación determina fundamentalmente el comportamiento temporal del sistema:
+El transmisor sincroniza sus transiciones con `baud_x16_tick`:
 
-**1. Temporización de Bit mediante Oversampling**
-
-Duración de bit = OVERSAMPLE × Período del baud_tick → Para 16x oversampling: cada bit dura 16 ticks del generador
-
-**2. Avance de la Máquina de Estados Finitos (FSM)**
-
-La FSM del transmisor únicamente actualiza su estado (salvo IDLE) cuando:
-- Se completa un período de bit (contador alcanza OVERSAMPLE-1)
-- La señal `baud_tick` está activa
-
-Este mecanismo garantiza:
-- **Precisión temporal perfecta**: Los bits se transmiten exactamente a la velocidad configurada
-- **Sincronización robusta**: El receptor puede muestrear en el centro de cada bit
-- **Independencia del reloj del sistema**: La frecuencia del sistema puede variar sin afectar el baudrate
-
-> Esta arquitectura separa claramente las responsabilidades: el baudrate generator proporciona la base temporal precisa, mientras que el TX implementa la lógica de serialización y protocolo.
+1. **Duración de bit**: Cada bit ocupa 16 ticks del generador de baudrate (`OVERSAMPLE = 16`).
+2. **Avance de la FSM**: La FSM del transmisor cambia de estado al completar los 16 ticks de cada bit, asegurando que el receptor pueda muestrear en el centro del período.
 
 ### 2.2 Justificación del Latch Interno para tx_start
 
@@ -343,29 +329,22 @@ El bloque `sync_fifo.sv`, ilustrado en la figura, es el responsable de que el ha
 
 #### **Ventajas de la Integración con Latch**
 
-Permite que módulos externos (como la ALU) generen pulsos de control simples sin preocuparse por:
-- Timing exacto respecto a baud_tick
-- Duración del pulso
-- Sincronización entre dominios de reloj
-
-Este patrón simple y robusto es posible gracias al latch interno, que absorbe la complejidad de sincronización y garantiza que ninguna solicitud de transmisión se pierda.
+Permite que módulos externos generen pulsos de control breves sin requerir sincronización exacta con `baud_x16_tick`. El registro interno retiene la solicitud hasta que el transmisor inicia el envío.
 
 #### **Ventajas de la Integración con FIFO**
 
-**1. Desacoplamiento Temporal:** el Throughput de la ALU suele ser mucho mayor que el de la UART, lo que provoca un desbalance, haciendo necesaria una FIFO para absorber ráfagas de ALU sin pérdida de datos (sumado al hecho de que cada operación de la ALU implica 2 frames enviados por la UART)
+**1. Desacoplamiento Temporal:** El throughput de la ALU es mayor que el de la UART; la FIFO absorbe ráfagas de cálculo sin pérdida de datos (cada operación genera 2 frames por UART).
 
 **2. Maximización de Utilización del Canal**
-- TX transmite back-to-back mientras FIFO tenga datos
-- Overhead entre frames reducido a 0 ciclos
+- TX transmite de forma continua mientras la FIFO contenga datos.
+- Sin pausas intermedias entre frames.
 
 **3. Simplificación de Lógica Externa**
-- ALU no necesita conocer estado del UART, solo debe escribir a FIFO cuando tiene resultado
-- No requiere sincronización explícita
+- La ALU solo escribe en la FIFO al disponer del resultado.
+- No requiere esperar que el transmisor quede libre.
 
 **4. Tolerancia a Variaciones de Tasa**
-- Si ALU se detiene temporalmente, TX continúa vaciando FIFO
-- Si ALU acelera, FIFO bufferiza hasta alcanzar capacidad
-- Sistema robusto ante condiciones variables
+- Desacopla la velocidad de procesamiento de la ALU de la tasa de transmisión serie.
 
 #### **Implementación en el Diseño Actual**
 
@@ -508,13 +487,13 @@ Con `ENABLE_FIFO_MODE=1`, testbench ejecuta **6 tests adicionales** por modo de 
 
 ## 3. Módulo Receptor (RX)
 
-### 3.1 Importancia del Receptor UART y Relación con Baudrate Generator
+### 3.1 Receptor UART y Relación con el Generador de Baudrate
 
-El módulo receptor UART (RX) constituye el componente crítico responsable de la deserialización y reconstrucción de datos serie asíncronos, convirtiéndolos en palabras paralelas procesables por la lógica digital interna. Su función principal consiste en detectar, sincronizar y validar frames UART entrantes, extrayendo los bits de datos y verificando su integridad mediante paridad y control de trama.
+El módulo receptor UART (`uart_rx.sv`) deserializa el flujo serie asíncrono en palabras paralelas de 8 bits, valida la paridad y detecta errores de trama.
 
-#### **Desafíos Fundamentales del Receptor UART**
+#### **Desafíos del Receptor UART**
 
-A diferencia del transmisor, que opera en un entorno controlado y predecible, el receptor debe resolver múltiples problemas de sincronización y detección:
+A diferencia del transmisor, el receptor debe resolver la sincronización y la detección sobre una línea asíncrona:
 
 **1. Detección Asíncrona del START Bit**
 - La línea RX permanece en estado IDLE (1 lógico) indefinidamente
@@ -538,54 +517,45 @@ A diferencia del transmisor, que opera en un entorno controlado y predecible, el
 - Validar bit de STOP para detectar errores de sincronización
 - Detectar frames malformados por ruido o desincronización
 
-#### **Dependencia Crítica del Baudrate Generator**
+#### **Temporización con el Generador de Baudrate**
 
-El receptor UART depende **estrictamente** del oversampling 16× proporcionado por el baudrate generator.
+El receptor UART utiliza el pulso de oversampling a 16× (`baud_x16_tick`) para la captura de datos.
 
 **Proceso de Sincronización en Dos Fases:**
 
 **Fase 1: Detección y Validación del START Bit**
 ```
-Detección flanco 1→0 (asíncrona, sin baud_tick)
+Detección flanco 1→0 (asíncrona)
          ↓
 Esperar 8 ticks de baud_x16_tick (OVERSAMPLE/2)
          ↓
-Muestrear rx en el CENTRO del bit de START
+Muestrear rx en el centro del bit de START
          ↓
 Validar que rx = 0 (confirma START válido)
 ```
 
-> **Detección de Falsos Positivos:** Si en el tick 8 el valor es 1 (no 0), se detecta que el flanco fue causado por ruido, no por un START legítimo.
+> Si en el tick 8 la línea volvió a 1, se descarta el pulso por considerarse ruido.
 
-**Fase 2: Muestreo de Bits de Datos, Paridad y STOP**
+**Fase 2: Muestreo de Datos, Paridad y STOP**
 ```
 Para cada bit subsecuente:
-    Contar 16 ticks completos (OVERSAMPLE)
+    Contar 16 ticks completos
          ↓
-    Muestrear rx en el último tick (que debido a la fase 1, coincide con el centro del bit)
+    Muestrear rx en el tick 16 (centro del bit)
          ↓
-    Almacenar valor en shifter o registros de control
+    Almacenar el bit en el registro de desplazamiento
 ```
 
-### 3.2 Mecanismo de Refase y Sincronización: La Clave del START Bit
+### 3.2 Refase y Sincronización en el Bit de START
 
-El proceso de refase implementado en el estado S_START constituye el mecanismo fundamental que permite al receptor sincronizarse temporalmente con el transmisor a pesar de operar con relojes independientes.
+El receptor se sincroniza con el transmisor alineando su base de tiempo con el flanco descendente del bit de START.
 
-#### **Problema: Desincronización entre Transmisor y Receptor**
+#### **Muestreo Central en Tick 8**
 
-En sistemas asíncronos, el receptor no tiene forma de predecir el instante exacto en que comenzará la transmisión:
+Al detectar el flanco 1→0, esperar 8 ticks ubica el primer muestreo en el centro aproximado del bit de inicio:
 
-El receptor detecta el flanco 1→0 en un instante arbitrario dentro del bit de START. Si comenzara a contar inmediatamente 16 ticks, muestrearía en un punto impredecible del bit, posiblemente cerca de una transición donde el valor es inestable.
-
-#### **Solución: Refase Mediante Muestreo Mid-Bit**
-
-El algoritmo de refase implementado resuelve este problema. El muestreo inicial en el tick 8 del bit de START no es arbitrario, sino que responde a principios fundamentales de procesamiento de señales:
-
-1. **Refase Temporal:** Al hacer `next_os_count = '0` después del muestreo mid-bit en tick 8 la primera vez, el receptor establece un nuevo punto de referencia temporal. Los próximos bits (DATA, PARITY, STOP) se muestrearán cada 16 ticks exactos a partir de este refase, garantizando que todos los muestreos ocurran en el centro de sus respectivos bits.
-
-2. **Máxima Tolerancia a Jitter:** El centro del bit es el punto de máxima estabilidad, equidistante de las transiciones de bit anterior y posterior.
-
-3. **Tolerancia a Variaciones de Frecuencia:** Incluso con ±3% de error entre relojes, el muestreo mid-bit garantiza captura correcta durante todo el frame (10-11 bits).
+1. **Refase Temporal:** Al reiniciar el contador de oversampling (`next_os_count = '0`) en el tick 8, los muestreos siguientes de datos, paridad y parada ocurren cada 16 ticks, manteniendo la lectura en el centro de cada bit.
+2. **Margen de Ruido y Jitter:** Muestrear en el centro maximiza la distancia a las transiciones de flanco, reduciendo la probabilidad de error por jitter o diferencias de reloj (hasta ±3% acumulado en la trama).
 
 ### 3.3 Reconstrucción LSB-First en el Shifter
 
@@ -623,11 +593,11 @@ La paridad simple puede detectar:
 
 | Escenario | Recomendación |
 |-----------|---------------|
-| Líneas con ruido eléctrico | **Sí** - Detecta errores de transmisión |
-| Comunicación crítica (safety) | **No** - Usar CRC o códigos más robustos |
-| Sistemas de bajo consumo | **Depende** - Overhead de 1 bit (9-10% más tiempo) |
-| Debugging/Desarrollo | **Sí** - Ayuda a identificar problemas de hardware |
-| Baudrates altos (>115200) | **Sí** - Mayor susceptibilidad a errores de timing |
+| Líneas con ruido eléctrico | Sí: detecta errores de transmisión de 1 bit |
+| Comunicación con alta exigencia de integridad | No: usar CRC o códigos detectores |
+| Sistemas de bajo consumo | Opcional: añade 1 bit por trama (~9-10% más tiempo) |
+| Debugging/Desarrollo | Sí: ayuda a aislar problemas de línea |
+| Baudrates altos (>115200) | Sí: mitiga susceptibilidad a errores de timing |
 
 #### **Detección de Errores de Frame**
 
@@ -706,17 +676,17 @@ Error real (11 bits, ±3%): ±5.28 ticks
 Factor de seguridad: 8 / 5.28 ≈ 1.5× (margen del 50%)
 ```
 
-Esto explica por qué UART tolera ±3% de error: el oversampling 16× con muestreo mid-bit proporciona 1.5× más margen del necesario, garantizando operación robusta incluso en condiciones límite.
+Esto permite una tolerancia de hasta ±3% de desviación en la frecuencia de reloj: el oversampling 16× con muestreo en el tick 8 ofrece un margen de seguridad del 50% frente al drift acumulado en una trama de 11 bits.
 
-**Comparación con Oversampling Menor:**
+**Comparación con Otros Factores de Oversampling:**
 
 | Factor | Ventana Muestreo | Error Máx (11 bits, 3%) | Margen | Viabilidad |
 |--------|------------------|-------------------------|--------|------------|
-| 8× | ±4 ticks | ±5.28 ticks | **Insuficiente** | ✗ No tolera 3% |
-| 16× | ±8 ticks | ±5.28 ticks | 1.5× | ✓ **ÓPTIMO** |
-| 32× | ±16 ticks | ±5.28 ticks | 3× | ✓ Excesivo (overhead) |
+| 8× | ±4 ticks | ±5.28 ticks | Insuficiente | ✗ No tolera 3% |
+| 16× | ±8 ticks | ±5.28 ticks | 1.5× | ✓ Adecuado |
+| 32× | ±16 ticks | ±5.28 ticks | 3× | ✓ Mayor consumo lógico innecesario |
 
-El oversampling 16× representa el **punto óptimo** entre robustez y eficiencia de recursos.
+El oversampling 16× equilibra tolerancia al jitter y consumo de lógica en la FPGA.
 
 ### 3.6 Flujo Detallado de la Máquina de Estados Finitos (FSM)
 
@@ -809,9 +779,7 @@ Para cada vector de prueba, el testbench valida:
 
 ### 3.8 Comparación Transmisor (TX) vs Receptor (RX)
 
-Ambos módulos comparten principios arquitectónicos fundamentales pero difieren en sus desafíos y mecanismos de operación:
-
-#### **Diferencias Fundamentales**
+#### **Diferencias entre TX y RX**
 
 | Característica | TX (Generador de Bits) | RX (Reconstructor de Bits) |
 |----------------|------------------------|----------------------------|
@@ -843,7 +811,7 @@ En un sistema bidireccional completo, cada dispositivo tiene un TX y un RX opera
 
 ### 4.1 Arquitectura del Sistema UART Completo
 
-El módulo `uart_top` constituye el nivel jerárquico superior que integra todos los componentes desarrollados previamente en un sistema UART completo y funcional. Su diseño implementa una arquitectura desacoplada mediante FIFOs síncronas que separan los dominios de velocidad entre la lógica de usuario (ALU) y la comunicación serie (UART).
+El módulo `uart_top` integra el generador de baudrate, el transceptor (TX y RX) y las FIFOs sincrónicas que desacoplan la velocidad de cálculo de la ALU del canal serie.
 
 #### **Componentes Integrados**
 
@@ -883,7 +851,7 @@ El sistema se compone de seis módulos interconectados:
 
 #### **Flujo de Recepción (PC → ALU) con Backpressure**
 
-El flujo de recepción implementa un mecanismo robusto de control de flujo que previene pérdida de datos cuando la FIFO se satura:
+El flujo de recepción gestiona el estado de la FIFO para evitar pérdidas silenciosas de datos ante saturación:
 
 **Características Clave del Control de Flujo RX:**
 
