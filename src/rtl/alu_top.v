@@ -34,7 +34,8 @@ module alu_top #(
     output result_led1,     //!< LED1: refleja bit 1 del resultado (activo alto)
     output result_led_b_n,  //!< LED Azul: refleja bit 2 invertido (activo bajo)
     output result_led_g_n,  //!< LED Verde: refleja bit 3 invertido (activo bajo)
-    output result_led_r_n   //!< LED Rojo: refleja bit 4 invertido (activo bajo)
+    output result_led_r_n,  //!< LED Rojo: refleja bit 4 invertido (activo bajo)
+    input  exec_pulse       //!< Pulso que indica que la operación ALU terminó
 );
 
   wire [  DATA_WIDTH-1:0] reg_a;  //!< Salida del registro A (operando A)
@@ -90,13 +91,11 @@ module alu_top #(
       load_sel_d <= 1'b0;
     end else begin
       load_sel_d <= load_sel;
-
+      if (exec_pulse && is_arith_family) begin
+        carry_flag_old <= core_cout;
+      end
       if (load_sel) begin
         carry_flag_new <= carry_flag_old;
-      end
-
-      if (load_sel_d && is_arith_family) begin
-        carry_flag_old <= core_cout;
       end
     end
   end

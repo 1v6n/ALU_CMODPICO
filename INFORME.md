@@ -184,9 +184,9 @@ Esta prueba se centra en verificar la correctitud funcional del diseño RTL en u
 
 *   **`gen_test_vectors.py`**: Un script de Python que actúa como "golden model". Genera una gran cantidad de vectores de prueba, incluyendo casos especificos para cada una de las operaciones y casos aleatorios. Para cada vector, calcula el resultado esperado y los flags (`Cout`, `Zero`), emulando la lógica de la ALU en Python.
 *   **`alu_test_vectors.svh`**: Un archivo header de SystemVerilog que es generado automáticamente por el script anterior. Contiene los vectores de prueba (entradas y resultados esperados) en forma de arrays de `structs`, listos para ser consumidos por el testbench.
-*   **`tb_alu.sv`**: El testbench principal, escrito en SystemVerilog. Este módulo instancia el `alu_top` (DUT), importa los vectores de prueba desde `alu_test_vectors.svh` y los aplica secuencialmente. En cada paso, compara la salida del DUT con el resultado esperado del vector de prueba y reporta cualquier discrepancia.
+*   **`tb_alu.sv`**: El testbench principal en SystemVerilog. Instancia `alu_top` (DUT), lee los vectores de prueba desde `alu_test_vectors.svh`, los aplica secuencialmente y compara la salida del DUT con el resultado esperado.
 
-Este enfoque permite una verificación robusta y automatizada del RTL de forma aislada, asegurando que la lógica del Verilog es correcta antes de la implementación en hardware. Se utiliza un script en Python como golden model para generar los resultados esperados, desacoplando la lógica de verificación del testbench. 
+Este esquema verifica el RTL de forma aislada antes de programar la FPGA. El script en Python genera los vectores y resultados esperados como modelo de referencia, desacoplando la generación de datos de la lógica del testbench. 
 
 <p align="center">
   <a>
@@ -207,20 +207,20 @@ El test se maneja mediante el script **`pico_uart_to_fpga/scripts/uart_selftest.
 4.  El firmware de la Pico lee el resultado directamente de los pines GPIO de la FPGA y lo envía de vuelta al PC a través de UART.
 5.  El script de Python recibe la respuesta y la compara con el resultado esperado, reportando éxito o fallo.
 
-Esta es una prueba de integración "end-to-end" que verifica no solo la ALU, sino también el firmware del microcontrolador y la correcta comunicación física entre ambos dispositivos.
+Esta prueba de integración valida la ALU, el firmware del microcontrolador y la comunicación física entre ambos dispositivos.
 
 ## Archivo de Restricciones: `constraints.xdc`
 
 Para la creación de este archivo se tomó como base `Cmod-A7-Master.xdc` proporcionado por Digilent, el cual contiene las asignaciones para todos los periféricos de la placa. A partir de este, se descomentaron y renombraron los puertos necesarios para este proyecto específico.
 
-Este archivo es el puente fundamental entre el diseño lógico abstracto (el código Verilog) y el mundo físico de la placa FPGA (la Cmod A7-35T). Su función no es solo asignar pines, sino también guiar a las herramientas de Vivado para que implementen un diseño que sea eléctricamente compatible y que pueda funcionar a la velocidad requerida.
+Este archivo vincula los puertos lógicos del diseño con los pines físicos de la Cmod A7-35T y define los estándares de voltaje y las restricciones de temporización para Vivado.
 
 Se divide en tres tipos principales de restricciones:
 
 #### 1. Restricciones Físicas (Pines y Voltajes)
 
 *   **Asignación de Pines (`PACKAGE_PIN`):** Conecta cada puerto del módulo `alu_top` a un pin físico específico en el encapsulado de la FPGA. Por ejemplo, la línea `set_property -dict { PACKAGE_PIN L17 ... } [get_ports {clk}]` conecta la entrada de reloj del diseño al pin `L17`, donde se encuentra el oscilador de 12 MHz de la placa.
-*   **Estándar de E/S (`IOSTANDARD`):** Define el estándar eléctrico para cada pin. En este caso, se usa `LVCMOS33` para todos los puertos, lo que configura los bancos de la FPGA para operar con lógica de 3.3V. Esto es crucial para garantizar la compatibilidad con los periféricos de la placa y, sobre todo, con los pines GPIO de la Raspberry Pi Pico.
+*   **Estándar de E/S (`IOSTANDARD`):** Define el estándar eléctrico para cada pin. Se usa `LVCMOS33` en todos los puertos (lógica de 3.3V), garantizando compatibilidad con los periféricos de la placa y los pines GPIO de la Raspberry Pi Pico.
 
 #### 2. Restricciones de Temporización (Timing Constraints)
 
@@ -232,8 +232,6 @@ Estas son las restricciones más importantes para asegurar que el diseño funcio
 #### 3. Restricciones Adicionales
 
 *   **`set_false_path`**: Se utiliza en la señal de `rst` para indicar a las herramientas que no deben analizar la temporización en esta ruta. Esto es una práctica común para señales asíncronas o de reinicio, donde el análisis de temporización convencional no es relevante.
-
-En resumen, el archivo `.xdc` es una pieza crítica que transforma el diseño RTL en una implementación física funcional y fiable.
 
 ## Anexo
 

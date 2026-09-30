@@ -1,0 +1,1116 @@
+<p align="center">
+  <a>
+    <img src="imgs/Logo.png" alt="Logo">
+  </a>
+</p>
+<p align="center"><em>Identidad visual del proyecto UART + ALU</em></p>
+
+***TRABAJO PRACTICO 2***
+
+**Titulo:** UART Parametrizable para Control de ALU
+
+**Asignatura:** Arquitectura de Computadoras
+
+**Integrantes:**
+   - Ignacio Ledesma
+   - Ivan Zuñiga
+
+---------------
+
+## Enunciado
+
+Desarrollar una UART (Universal Asynchronous Receiver-Transmitter) parametrizable en SystemVerilog para controlar la ALU desarrollada en el trabajo práctico anterior. La UART debe implementar comunicación serie full-duplex con parámetros configurables, incluyendo generador de baudrate, módulo transmisor y receptor.
+
+### Requerimientos
+
+1. **Generador de Baudrate:**
+    - Implementar un divisor de frecuencia que genere señales de temporización para UART
+    - Utilizar la frecuencia de reloj de 12 MHz de la Cmod A7-35T
+
+2. **Módulo Transmisor UART (TX):**
+    - Implementar máquina de estados para transmisión serie
+    - Soportar formato configurable: 8 bits de datos (parametrizable)
+    - (opcional) Incluir bit de paridad (parametrizable: par, impar, ninguna)
+    - Configurar 1 stop bit
+
+3. **Módulo Receptor UART (RX):**
+    - Implementar máquina de estados para recepción serie
+    - Detectar automáticamente el bit de start
+    - Muestrear datos en el centro del bit usando oversampling
+    - Verificar paridad y detectar errores de trama
+
+4. **Integración con ALU:**
+    - Interfaz de comandos para controlar la ALU del TP anterior
+    - Protocolo de comunicación para envío de operandos y opcodes
+    - Lectura de resultados y flags de la ALU vía UART
+
+---
+
+## Marco Teórico
+
+### Comunicación UART
+
+La comunicación UART (Universal Asynchronous Receiver-Transmitter) es un protocolo de comunicación serie asíncrona ampliamente utilizado en sistemas embebidos. A diferencia de los protocolos síncronos, UART no requiere una línea de reloj compartida, sino que depende de que ambos extremos de la comunicación operen a la misma velocidad de transmisión (baudrate).
+
+---
+
+## Especificaciones del Sistema
+
+- **FPGA:** Xilinx Artix-7 (XC7A35T-1CPG236C) en placa Cmod A7-35T
+- **Frecuencia de reloj:** 12 MHz (oscilador integrado)
+- **Herramientas:** Vivado, SystemVerilog
+- **Protocolo:** UART parametrizable (8 bits de datos, paridad, 1 stop bit)
+
+---
+
+## 1. Baudrate Generator
+
+### 1.1. Baudrate y Temporización
+
+El baudrate define la velocidad de transmisión en bits por segundo (bps). Para una comunicación exitosa, ambos dispositivos deben estar sincronizados temporalmente.
+
+#### **Justificación del Baudrate de 9600 bps**
+
+La selección de 9600 bps como velocidad de transmisión se basa en múltiples consideraciones técnicas y prácticas:
+
+**1. Compatibilidad Universal**
+- 9600 bps es uno de los baudrates estándar más ampliamente soportados
+- Garantiza compatibilidad con la mayoría de dispositivos y software de terminal
+- Es el baudrate por defecto en muchos microcontroladores y sistemas embebidos
+
+**2. Precisión con Reloj de 12 MHz**
+```
+Factor de división = 12,000,000 Hz ÷ 9600 bps = 1250
+Error de cuantización = 0% (división exacta)
+```
+Esta división exacta elimina completamente el error de cuantización, proporcionando una precisión perfecta en la temporización.
+
+**3. Comparación con Otros Baudrates Comunes**
+
+| Baudrate | Factor División | Error | Observaciones |
+|----------|----------------|-------|---------------|
+| 4800 bps | 2500 | 0% | Muy lento para aplicaciones interactivas |
+| 9600 bps | 1250 | 0% | **ÓPTIMO: División exacta, velocidad adecuada** |
+| 19200 bps | 625 | 0% | Rápido, pero menos tolerante a ruido |
+| 38400 bps | 312.5 | ~0.16% | Requiere aproximación, introduce error |
+| 115200 bps | ~104.17 | ~0.16% | Muy rápido, sensible a condiciones de línea |
+
+**4. Consideraciones de Potencia**
+- Baudrates menores resultan en menor actividad de conmutación
+- Reduce el consumo de potencia en sistemas alimentados por batería
+- Disminuye la generación de EMI (interferencia electromagnética)
+
+### 1.2. Oversampling en Sistemas UART
+
+El oversampling es una técnica que consiste en muestrear la señal de entrada múltiples veces durante cada período de bit. Esto proporciona varios beneficios:
+
+- **Tolerancia a variaciones de frecuencia**: Tolera pequeñas diferencias entre los relojes del transmisor y receptor
+- **Inmunidad al ruido**
+- **Detección de partes de la trama**: Facilita la identificación de bits de start, data y stop
+- **Sincronización de muestreo**: Permite muestrear en el centro óptimo de cada bit
+
+#### **Justificación del Factor de Oversampling 16x**
+
+La elección del factor de oversampling de 16x se fundamenta en principios teóricos de procesamiento de señales y estándares de la industria:
+
+**1. Fundamento Teórico - Teorema de Nyquist**
+
+Frecuencia de muestreo mínima = 2 × frecuencia máxima de la señal   
+Para baudrate de 9600 bps: fmin = 2 × 9600 = 19.2 kHz   
+Con oversampling 16x: fsampling = 16 × 9600 = 153.6 kHz   
+Margen de seguridad = 153.6 / 19.2 = 8x sobre el mínimo teórico
+
+**2. Estándar de la Industria:** 16x es el factor de oversampling más común en UARTs comerciales
+
+**3. Detección precisa del centro de bit**: 8 muestras antes y después del centro
+
+### 1.3. Diagrama RTL del Baudrate Generator
+
+<p align="center">
+  <a>
+    <img src="imgs/baudrate_gen_rtl.jpg" alt="Baudrate_Generator">
+  </a>
+</p>
+<p align="center"><em>Implementación RTL del generador de baudrate</em></p>
+
+En este diseño, tanto el transmisor (TX) como el receptor (RX) utilizan la señal `baud_x16_tick`, un pulso de oversampling a 16× la frecuencia del baudrate. El TX podría haberse implementado directamente con `baud_tick` (1×), pero usa `baud_x16_tick` para mantener coherencia temporal con el RX y seguir el enfoque de la bibliografía.
+
+El RX requiere oversampling ×16: su FSM muestrea el bit de start en el tick 8 y los bits de datos, paridad y stop cada 16 ticks completos, lo que permite sincronización precisa y tolerancia a variaciones de baudrate.
+
+Disponer tanto de `baud_tick` como de `baud_x16_tick` permite verificar y configurar cada módulo de forma independiente.
+
+---
+
+## Módulo Transmisor (TX)
+
+### 2.1 Transmisor UART y Relación con Baudrate Generator
+
+El módulo transmisor UART (`uart_tx.sv`) serializa datos paralelos (8 bits de resultado o flags de estado de la ALU) en una línea serie asíncrona bajo el estándar UART.
+
+#### **Frame UART: Estructura y Componentes**
+
+El diseño transmite **dos frames consecutivos** para cada resultado de la ALU:
+
+**Frame 1 (Datos):**
+```
+[START] [D0 D1 D2 D3 D4 D5 D6 D7] [PARITY] [STOP]
+   1         8 bits (LSB first)     0/1       1
+```
+
+**Frame 2 (Flags):**
+```
+[START] [ZERO] [CARRY] [x x x x x x] [PARITY] [STOP]
+   1      1       1      6 bits relleno  0/1       1
+```
+
+**Componentes de cada frame:**
+
+- **START bit (1 bit)**: Señaliza el inicio de la transmisión mediante una transición de 1 (idle) a 0. Permite al receptor detectar el comienzo del frame y sincronizarse.
+
+- **DATA bits (8 bits)**: En el primer frame, contienen el resultado de la ALU. En el segundo frame, ZERO y CARRY ocupan los 2 LSBs, con 6 bits de relleno (típicamente 0) para completar el byte.
+
+- **PARITY bit (0 o 1 bit)**: Bit opcional de verificación de integridad, calculado **independientemente** sobre los 8 bits de datos de cada frame.
+
+- **STOP bit (1 bit)**: Señaliza el fin de la transmisión mediante el valor 1, retornando la línea al estado idle.
+
+**Longitud total por operación ALU:**
+- Sin paridad: 2 × (1 + 8 + 1) = 2 × 10 = **20 bits**
+- Con paridad: 2 × (1 + 8 + 1 + 1) = 2 × 11 = **22 bits**
+
+**Ventajas de la arquitectura de dos frames:**
+- Simplifica el diseño de la FSM (reutiliza la misma lógica para ambos frames)
+- Facilita la integración con FIFO estándar (cada entrada es un byte completo)
+- Mantiene compatibilidad con herramientas UART estándar para el frame de datos
+
+#### **Sincronización con el Generador de Baudrate**
+
+El transmisor sincroniza sus transiciones con `baud_x16_tick`:
+
+1. **Duración de bit**: Cada bit ocupa 16 ticks del generador de baudrate (`OVERSAMPLE = 16`).
+2. **Avance de la FSM**: La FSM del transmisor cambia de estado al completar los 16 ticks de cada bit, asegurando que el receptor pueda muestrear en el centro del período.
+
+### 2.2 Justificación del Latch Interno para tx_start
+
+#### **Problema: Uso Directo de tx_start desde Lógica Externa**
+
+En sistemas digitales síncronos, el uso directo de señales de control desde módulos externos presenta múltiples desafíos que pueden comprometer la funcionalidad del transmisor UART:
+
+**1. Pulsos Transitorios Muy Cortos**
+
+Si tx_start dura solo 1 ciclo de reloj:
+- Puede ocurrir entre dos baud_ticks consecutivos
+- La FSM del TX nunca "ve" el pulso
+- Transmisión no se inicia, dato se pierde
+
+**2. Desincronización con baud_tick**
+- La FSM del TX solo avanza cuando `baud_tick = 1` (para lograr desacople del clk del sistema y porque mejora la alineación temporal con los bits)
+- Si tx_start llega cuando `baud_tick = 0`, se ignora
+
+#### **Solución: Latch Interno Sincronizado**
+
+El diseño implementa un registro interno `tx_start_pending` que captura y mantiene la solicitud de transmisión hasta que el sistema esté listo:
+
+**Ventajas del Mecanismo de Latch:**
+
+**1. Captura Garantizada de Pulsos Cortos**
+```
+clk         _|‾|_|‾|_|‾|_|‾|_|‾|_|‾|_
+tx_start    ___|‾|_____________________
+pending     _____|‾‾‾‾‾‾‾‾‾‾‾‾|_______  ← Extendido hasta baud_tick
+baud_tick   _______________|‾|_________
+```
+El pulso de 1 ciclo se extiende automáticamente hasta el próximo baud_tick.
+
+**2. Sincronización Automática**
+- El latch actúa como buffer entre dominio de control y dominio de baudrate
+- Elimina requisitos de timing estrictos para lógica externa
+- Simplifica integración con ALU y otros módulos
+
+**3. Inmunidad a Glitches**
+- Solo se captura tx_start cuando `state == S_IDLE`
+- Durante transmisión activa, pulsos por ruido o interferencia son ignorados
+- Comportamiento determinista y predecible
+
+### 2.3 Interfaz con la FIFO — write_o y read_en
+
+En sistemas que requieren buffering de múltiples transmisiones (como cuando la ALU genera resultados más rápido que la capacidad del UART), se introduce una FIFO entre el productor de datos (ALU) y el transmisor UART. Esta arquitectura desacopla temporalmente ambos módulos y maximiza el throughput del sistema.
+
+<p align="center">
+  <a>
+    <img src="imgs/ALU-FIFO-TX.jpg" alt="Flujo ALU-FIFO-TX">
+  </a>
+</p>
+<p align="center"><em>Flujo de datos ALU → FIFO → UART TX</em></p>
+
+#### **Señales de la Interfaz FIFO**
+
+**write_o (input del TX, output de FIFO)**
+- **Tipo**: Señal de nivel (level signal)
+- **Función**: Indica que la FIFO tiene al menos un elemento disponible para transmitir
+- **Comportamiento**:
+  - `write_o = 1`: Dato válido presente en las salidas de la FIFO
+  - `write_o = 0`: FIFO vacía, no hay datos disponibles
+
+**read_en (output del TX, input de FIFO)**
+- **Tipo**: Pulso de 1 ciclo de reloj
+- **Función**: Señal de consumo que indica que el TX ha tomado el dato actual
+- **Comportamiento**:
+  - Genera pulso de 1 ciclo cuando TX captura dato de FIFO
+  - Causa que FIFO avance al siguiente elemento (pop)
+  - Solo se activa en transición `S_IDLE → S_START`
+  - **Para cada operación ALU, se generan dos pulsos**: uno para el frame de datos y otro para el frame de flags
+
+#### **Secuencia de Handshake FIFO-TX**
+
+```
+write_o  read_en   state     Acción
+───────────────────────────────────────────────────────────────
+0        0         S_IDLE    TX esperando
+1        0         S_IDLE    FIFO ofrece dato (byte de datos)
+1        1         S_LOAD    TX solicita dato, genera read_en
+1        0         S_LOAD    FIFO registra data_out (latencia 1 ciclo)
+1        0         S_START   TX captura din válido, inicia frame 1
+1        0         S_DATA    Transmitiendo frame 1...
+...
+1        0         S_DONE    Frame 1 completo
+1        0         S_IDLE    TX regresa a IDLE brevemente
+1        1         S_LOAD    TX solicita frame 2 (flags), genera read_en
+1        0         S_LOAD    FIFO registra data_out con flags
+1        0         S_START   TX captura flags, inicia frame 2
+1        0         S_DATA    Transmitiendo frame 2...
+...
+1        0         S_DONE    Frame 2 completo (operación ALU finalizada)
+1        0         S_IDLE    Listo para próximo par de frames
+```
+
+**Nota importante:** Por cada operación de la ALU, la FIFO debe contener **dos bytes**:
+1. Byte de datos (resultado de la ALU)
+2. Byte de flags (ZERO en bit 0, CARRY en bit 1, resto en 0)
+
+**Sincronización con FIFO (Estado S_LOAD):**
+
+El módulo sync_fifo tiene una latencia de **1 ciclo de reloj** entre la señal `read_en` y la disponibilidad del dato en `data_out`. Para compensar esta latencia, el módulo TX implementa el estado **S_LOAD**:
+
+- **Ciclo N**: TX en S_IDLE detecta `write_o=1`, genera `read_en=1`, transiciona a S_LOAD
+- **Ciclo N+1**: FIFO registra `data_out` con el dato válido, TX permanece en S_LOAD (espera)
+- **Ciclo N+2**: TX captura `din` (ahora válido desde FIFO), carga shifter/data_reg, transiciona a S_START
+
+Este estado adicional garantiza que el TX **siempre capture el dato correcto** de la FIFO antes de iniciar la transmisión serie, evitando errores de sincronización.
+
+**Características clave:**
+- **No bloqueante**: TX continúa transmitiendo mientras FIFO tenga datos
+- **Backpressure implícito**: Si FIFO está vacía (write_o=0), TX espera en IDLE
+- **Sincronización automática**: S_LOAD compensa latencia de FIFO sin intervención externa
+
+<p align="center">
+  <a>
+    <img src="imgs/FIFO.png" alt="FIFO síncrona utilizada por los caminos RX/TX">
+  </a>
+</p>
+<p align="center"><em>Detalle de la FIFO síncrona compartida entre RX y TX</em></p>
+
+El bloque `sync_fifo.sv`, ilustrado en la figura, es el responsable de que el handshaking anterior funcione. Su implementación registra `data_out` y `data_valid`, de modo que la lectura ocurre exactamente un ciclo después del pulso `read_en`. Esta latencia fija explica la necesidad del estado `S_LOAD` y garantiza que el TX nunca capture datos no estables aun cuando la ALU escriba y lea simultáneamente desde el mismo buffer.
+
+### 2.4 Comparación: Latch vs. Modo FIFO
+
+| **Aspecto / Característica** | **Modo Pulso / Latch (tx_start)**                          | **Modo FIFO (write_o / read_en)**                       |
+| ---------------------------- | ---------------------------------------------------------- | ------------------------------------------------------- |
+| **Iniciación**               | Pulso de 1 ciclo, capturado por latch interno              | write_o en nivel; TX solicita dato con read_en        |
+| **Latencia inicial**         | Hasta baud_tick, depende del oversampling     | +1 ciclo por estado S_LOAD (sincronización con FIFO)         |
+| **Robustez a glitches**      | Alta (el latch filtra pulsos breves)                       | Muy alta (handshake explícito write_o/read_en)          |
+| **Consumo del dato**         | Automático al detectar el pulso                            | Confirmado con read_en por parte del TX                 |
+| **Throughput sostenido**     | Limitado: 2 frames por solicitud externa (datos + flags)   | Máximo: permite streaming continuo sin gaps             |
+| **Escalabilidad**            | Baja (requiere un pulso por cada operación → 2 frames)     | Alta (FIFO absorbe bursts; 2 bytes por operación ALU)   |
+| **Complejidad del sistema**  | Baja (1 FF + lógica mínima)                                | Media (FIFO + protocolo handshake)                      |
+| **Uso de recursos FPGA**     | Mínimo                                          | Moderado                     |
+| **Pérdida de datos**         | Posible si TX está ocupado y el pulso llega en mal momento | No hay pérdidas: FIFO bufferiza y TX confirma recepción |
+| **Integración con ALU**      | Directa (ej: tx_start = alu_done)                          | Indirecta: la ALU escribe a FIFO, que alimenta al TX    |
+| **Aplicaciones típicas**     | Transmisión ocasional o eventos aislados                   | Streaming continuo, alta tasa, pipelines                |
+
+#### **Ventajas de la Integración con Latch**
+
+Permite que módulos externos generen pulsos de control breves sin requerir sincronización exacta con `baud_x16_tick`. El registro interno retiene la solicitud hasta que el transmisor inicia el envío.
+
+#### **Ventajas de la Integración con FIFO**
+
+**1. Desacoplamiento Temporal:** El throughput de la ALU es mayor que el de la UART; la FIFO absorbe ráfagas de cálculo sin pérdida de datos (cada operación genera 2 frames por UART).
+
+**2. Maximización de Utilización del Canal**
+- TX transmite de forma continua mientras la FIFO contenga datos.
+- Sin pausas intermedias entre frames.
+
+**3. Simplificación de Lógica Externa**
+- La ALU solo escribe en la FIFO al disponer del resultado.
+- No requiere esperar que el transmisor quede libre.
+
+**4. Tolerancia a Variaciones de Tasa**
+- Desacopla la velocidad de procesamiento de la ALU de la tasa de transmisión serie.
+
+#### **Implementación en el Diseño Actual**
+
+El módulo `uart_tx.sv` soporta **ambos modos simultáneamente**.
+- Configuración en tiempo de síntesis (parámetro)
+- Permite testing de ambos modos con mismo RTL
+- Facilita migración de sistemas simples a sistemas con buffering
+
+### 2.5 Flujo Detallado de la Máquina de Estados Finitos (FSM)
+
+#### **Diagrama de Máquina de Estados Algorítmica**
+
+La FSM del transmisor UART implementa el protocolo de serialización mediante los siguientes estados:
+
+<p align="center">
+  <a>
+    <img src="imgs/tx_asmdp.jpg" alt="Tx_FSM">
+  </a>
+</p>
+<p align="center"><em>Máquina de estados del transmisor UART</em></p>
+
+
+#### **Tablas de Temporización**
+
+**Duración Teórica de un Frame Individual por Modo de Paridad**
+
+| Modo Paridad | Bits por Frame | Ticks de Baud | Ciclos @ 12 MHz | Tiempo @ 9600 bps |
+|--------------|----------------|---------------|-----------------|-------------------|
+| NONE | 10 | 10 × 16 = 160 | 10×1250 = 12500 | 1.042 ms |
+| EVEN | 11 | 11 × 16 = 176 | 11×1250 = 13750 | 1.146 ms |
+| ODD | 11 | 11 × 16 = 176 | 11×1250 = 13750 | 1.146 ms |
+
+**Desglose de Tiempo por Estado (un frame, modo NONE)**
+
+| Estado | Bits | Ticks Baud | % Frame | Tiempo @ 9600 bps |
+|--------|------|------------|---------|-------------------|
+| IDLE | - | Variable | - | Variable |
+| LOAD* | - | 0 (1 ciclo clk) | - | 83.3 ns @ 12 MHz |
+| START | 1 | 16 | 10% | 104.17 μs |
+| DATA | 8 | 128 | 80% | 833.33 μs |
+| STOP | 1 | 16 | 10% | 104.17 μs |
+| DONE | - | 1 | <1% | 6.51 μs |
+| **TOTAL** | **10** | **161** | **100%** | **1.048 ms** |
+
+> *S_LOAD solo se ejecuta en modo FIFO (write_o). Opera con clk del sistema, no con baud_tick._
+
+**Duración Total por Operación ALU (2 Frames):** Para completar una operación ALU, la FSM ejecuta esta secuencia **dos veces consecutivas** (frame de datos + frame de flags).
+
+| Modo Paridad | Bits Totales | Tiempo Total @ 9600 bps |
+|--------------|--------------|-------------------------|
+| NONE | 2 × 10 = 20 | 2 × 1.048 ms = **2.096 ms** |
+| EVEN | 2 × 11 = 22 | 2 × 1.152 ms = **2.304 ms** |
+| ODD | 2 × 11 = 22 | 2 × 1.152 ms = **2.304 ms** |
+
+### 2.6 Alcance de la Testbench del Módulo TX
+
+La testbench del módulo `uart_tx` implementa una estrategia de verificación exhaustiva basada en vectores de prueba pregenerados mediante un script Python (`gen_uart_tx_vectors.py`). Este enfoque proporciona múltiples ventajas sobre generación de estímulos en tiempo de simulación:
+
+**1. Modelo Dorado en Python**
+- Construcción de frames esperados mediante algoritmo simple y verificable
+- Cálculo de paridad en Python independiente de RTL (detecta errores de especificación)
+- Generación de casos corner predefinidos (smoke tests)
+- Casos random para cobertura estadística
+- **Generación de vectores solo para frame de datos** (8 bits); el testbench construye internamente el frame de flags
+
+**2. Separación de Generación y Verificación**
+- Testbench consume vectores de datos y construye ambos frames esperados (datos + flags)
+- Verifica secuencialmente los dos frames por cada operación
+- Permite auditoría manual de vectores esperados
+
+#### **Smoke Tests: Casos Críticos Predefinidos**
+
+La testbench ejecuta **6 smoke tests** por cada modo de paridad, cubriendo casos esenciales. Cada test verifica **dos frames consecutivos**: uno para los datos y otro para los flags.
+
+| Nombre | Dato (Frame 1) | Justificación |
+|--------|----------------|---------------|
+| BASIC_1F | 0x1F | Caso normal, patrón variado |
+| ALL_ZERO | 0x00 | Todos los bits de data en 0 |
+| MSB_SET | 0x80 | MSB activo, verifica LSB-first |
+| ALL_ONES | 0xFF | Todos los bits de data en 1 |
+| ALT_55 | 0x55 | Patrón alternado 01010101 |
+| ALT_AA | 0xAA | Patrón alternado 10101010 |
+
+**Total:** 6 casos × 3 modos de paridad = **18 smoke tests**
+
+#### **Tests Random: Cobertura Estadística**
+
+**9 vectores random** por modo de paridad, generados con distribución uniforme.
+
+**Objetivo:**
+- Explorar espacio de estados no cubierto por smoke tests
+- Detectar errores en combinaciones no anticipadas
+- Simular casos reales con datos arbitrarios
+
+**Total:** 9 casos × 3 modos de paridad = **27 random tests**
+
+#### **Verificaciones Realizadas por la Testbench**
+
+**1. Serialización Bit a Bit (Ambos Frames)**
+
+La testbench captura la línea TX mediante muestreo mid-bit:
+
+- Compara `captured_frame` con `expected_frame` generado por Python
+- Detecta errores de:
+  - Orden de bits (LSB vs MSB first)
+  - START/STOP incorrectos
+  - Inclusión/omisión de paridad en cada frame (si aplica)
+  - Valores transmitidos
+
+**2. Timing Exacto:** verifica cuantos ciclos del clock fueron necesarios para transmistir cada frame, y si cae dentro de un rango de valores aceptable
+
+**Detecta:**
+- Errores en contador de oversampling
+- Saltos de estados entre frames
+- Retrasos no anticipados
+
+**3. Cobertura de Modos de Paridad**
+
+La testbench ejecuta **3 configuraciones completas** mediante parámetro `TEST_MODE`
+
+**Garantiza:**
+- Frames con/sin bit de paridad (10 vs 11 bits por frame)
+- Cálculo correcto de paridad even/odd **independiente para cada frame**
+
+**4. Modo FIFO Adicional**
+
+Con `ENABLE_FIFO_MODE=1`, testbench ejecuta **6 tests adicionales** por modo de paridad:
+
+### 2.7 Diagrama RTL del Módulo UART TX
+
+<p align="center">
+  <a>
+    <img src="imgs/tx_rtl.jpg" alt="Diagrama RTL del UART TX">
+  </a>
+</p>
+<p align="center"><em>Vista RTL sintetizada del transmisor uart_tx</em></p>
+
+
+---
+
+## 3. Módulo Receptor (RX)
+
+### 3.1 Receptor UART y Relación con el Generador de Baudrate
+
+El módulo receptor UART (`uart_rx.sv`) deserializa el flujo serie asíncrono en palabras paralelas de 8 bits, valida la paridad y detecta errores de trama.
+
+#### **Desafíos del Receptor UART**
+
+A diferencia del transmisor, el receptor debe resolver la sincronización y la detección sobre una línea asíncrona:
+
+**1. Detección Asíncrona del START Bit**
+- La línea RX permanece en estado IDLE (1 lógico) indefinidamente
+- El inicio de transmisión se señaliza mediante una transición 1→0 asíncrona
+- El receptor no tiene conocimiento previo de cuándo llegará el próximo frame
+- Debe detectar el flanco de bajada sin depender de baud_tick
+
+**2. Sincronización Temporal con Transmisor Remoto**
+- El transmisor y receptor operan con relojes independientes
+- Pueden existir diferencias de frecuencia de hasta ±3% (tolerancia UART estándar)
+- Requiere mecanismo de refase para alinear muestreo con centro de cada bit
+- La sincronización se pierde entre frames y debe restablecerse con cada START
+
+**3. Reconstrucción de Datos LSB-First**
+- Los bits llegan serializados en orden LSB→MSB
+- Deben reconstruirse en un registro de desplazamiento
+- Timing crítico: muestrear cada bit exactamente en su centro
+
+**4. Validación de Integridad**
+- Verificar paridad calculada sobre bits de datos
+- Validar bit de STOP para detectar errores de sincronización
+- Detectar frames malformados por ruido o desincronización
+
+#### **Temporización con el Generador de Baudrate**
+
+El receptor UART utiliza el pulso de oversampling a 16× (`baud_x16_tick`) para la captura de datos.
+
+**Proceso de Sincronización en Dos Fases:**
+
+**Fase 1: Detección y Validación del START Bit**
+```
+Detección flanco 1→0 (asíncrona)
+         ↓
+Esperar 8 ticks de baud_x16_tick (OVERSAMPLE/2)
+         ↓
+Muestrear rx en el centro del bit de START
+         ↓
+Validar que rx = 0 (confirma START válido)
+```
+
+> Si en el tick 8 la línea volvió a 1, se descarta el pulso por considerarse ruido.
+
+**Fase 2: Muestreo de Datos, Paridad y STOP**
+```
+Para cada bit subsecuente:
+    Contar 16 ticks completos
+         ↓
+    Muestrear rx en el tick 16 (centro del bit)
+         ↓
+    Almacenar el bit en el registro de desplazamiento
+```
+
+### 3.2 Refase y Sincronización en el Bit de START
+
+El receptor se sincroniza con el transmisor alineando su base de tiempo con el flanco descendente del bit de START.
+
+#### **Muestreo Central en Tick 8**
+
+Al detectar el flanco 1→0, esperar 8 ticks ubica el primer muestreo en el centro aproximado del bit de inicio:
+
+1. **Refase Temporal:** Al reiniciar el contador de oversampling (`next_os_count = '0`) en el tick 8, los muestreos siguientes de datos, paridad y parada ocurren cada 16 ticks, manteniendo la lectura en el centro de cada bit.
+2. **Margen de Ruido y Jitter:** Muestrear en el centro maximiza la distancia a las transiciones de flanco, reduciendo la probabilidad de error por jitter o diferencias de reloj (hasta ±3% acumulado en la trama).
+
+### 3.3 Reconstrucción LSB-First en el Shifter
+
+Los datos UART se transmiten con el bit menos significativo primero (LSB-first). El receptor debe reconstruir el byte original mediante un registro de desplazamiento.
+
+**Copia a data_reg para Cálculo de Paridad:**
+
+Al completar la recepción de todos los bits de datos, se copia el shifter completo a `data_reg`. Este registro se usa posteriormente para:
+1. Calcular la paridad esperada (en estado S_PARITY)
+2. Presentar el dato final en `dout` (en estado S_DONE)
+
+Esta arquitectura separa las responsabilidades:
+- `shifter`: registro de desplazamiento temporal durante recepción
+- `data_reg`: almacenamiento estable del byte completo para procesamiento
+- `dout`: salida registrada presentada al sistema superior
+
+### 3.4 Verificación de Paridad y Detección de Errores
+
+#### **Cálculo del Bit de Paridad Esperado**
+
+El módulo receptor implementa cálculo combinacional de paridad idéntico al transmisor, pero con propósito de verificación en lugar de generación:
+
+#### **Utilidades de la Paridad en Sistemas UART**
+
+La paridad simple puede detectar:
+- **Errores de 1 bit:** Cualquier cambio de un solo bit altera la paridad
+**Errores impares:** 3, 5, 7... bits alterados cambian la paridad
+
+**Limitaciones de la Paridad:**
+- No puede **corregir** errores, solo detectarlos
+- No detecta errores en múltiplos pares de bits. 2, 4, 6... bits alterados pueden no detectarse (paridad permanece igual)
+- Overhead temporal: +1 bit por frame (~9-10% más tiempo de transmisión)
+
+**¿Cuándo Usar Paridad?**
+
+| Escenario | Recomendación |
+|-----------|---------------|
+| Líneas con ruido eléctrico | Sí: detecta errores de transmisión de 1 bit |
+| Comunicación con alta exigencia de integridad | No: usar CRC o códigos detectores |
+| Sistemas de bajo consumo | Opcional: añade 1 bit por trama (~9-10% más tiempo) |
+| Debugging/Desarrollo | Sí: ayuda a aislar problemas de línea |
+| Baudrates altos (>115200) | Sí: mitiga susceptibilidad a errores de timing |
+
+#### **Detección de Errores de Frame**
+
+El error de frame se detecta cuando el bit de STOP no tiene el valor esperado (1 lógico):
+
+**Causas Típicas de Frame Error:**
+
+1. **Desincronización de Baudrate:**
+   - Diferencia >3% entre relojes de TX y RX
+   - Acumulación de error de timing a lo largo del frame
+   - Muestreo del STOP en transición en lugar de centro
+
+2. **Ruido en la Línea:**
+   - Picos de voltaje inducidos por EMI
+   - Glitches que corrompen el bit de STOP
+   - Atenuación de señal en cables largos
+
+3. **START Prematuro:**
+   - Transmisor inicia nuevo frame antes de completar STOP
+   - Viola temporización del protocolo UART
+   - Indica problema en FSM del transmisor
+
+4. **Línea RX Atascada en 0:**
+   - Cortocircuito a GND
+   - Falla de hardware en driver del transmisor
+   - Cable desconectado (pull-down activo)
+
+#### **Importancia de los Flags de Error en Sistemas Reales**
+
+**Escenarios de Uso de parity_error y frame_error:**
+
+1. **Protocolos de Capa Superior con Retransmisión:** Aplicación detecta error → solicita retransmisión del frame
+
+2. **Diagnóstico de Problemas de Hardware:**
+   
+   - frame_error frecuente → desincronización de baudrate
+   - parity_error esporádico → ruido eléctrico en la línea
+   - ambos simultáneos → cable defectuoso o desconectado
+
+3. **Sistemas Safety-Critical:**
+
+   - Cualquier error → descarta frame y activa alarma
+   - Ejemplo: Comunicación en sistemas médicos o automotrices
+
+4. **Monitoreo de Calidad de Enlace:**
+
+   - Contador de errores / frames totales = BER (Bit Error Rate)
+   - BER > umbral → cambiar a baudrate más bajo o revisar hardware
+
+### 3.5 Tolerancia a Variaciones de Frecuencia: Análisis Cuantitativo
+
+La especificación UART estándar permite hasta **±3% de diferencia** entre los relojes del transmisor y receptor. El oversampling 16× proporciona margen suficiente para tolerar esta variación:
+
+**Cálculo de Error Acumulado:**
+
+Supongamos receptor 3% más lento que transmisor (peor caso):
+```
+Por cada bit transmitido:
+    TX: 16 ticks nominales
+    RX: 16.48 ticks reales (16 × 1.03)
+    Error por bit: 0.48 ticks
+
+Frame de 10 bits (NONE):
+    Error acumulado: 10 × 0.48 = 4.8 ticks
+
+Frame de 11 bits (EVEN/ODD):
+    Error acumulado: 11 × 0.48 = 5.28 ticks
+```
+
+**Margen de Seguridad:**
+
+El muestreo mid-bit proporciona ventana de ±8 ticks (centro del bit ± OVERSAMPLE/2):
+```
+Error máximo tolerable: ±8 ticks
+Error real (11 bits, ±3%): ±5.28 ticks
+Factor de seguridad: 8 / 5.28 ≈ 1.5× (margen del 50%)
+```
+
+Esto permite una tolerancia de hasta ±3% de desviación en la frecuencia de reloj: el oversampling 16× con muestreo en el tick 8 ofrece un margen de seguridad del 50% frente al drift acumulado en una trama de 11 bits.
+
+**Comparación con Otros Factores de Oversampling:**
+
+| Factor | Ventana Muestreo | Error Máx (11 bits, 3%) | Margen | Viabilidad |
+|--------|------------------|-------------------------|--------|------------|
+| 8× | ±4 ticks | ±5.28 ticks | Insuficiente | ✗ No tolera 3% |
+| 16× | ±8 ticks | ±5.28 ticks | 1.5× | ✓ Adecuado |
+| 32× | ±16 ticks | ±5.28 ticks | 3× | ✓ Mayor consumo lógico innecesario |
+
+El oversampling 16× equilibra tolerancia al jitter y consumo de lógica en la FPGA.
+
+### 3.6 Flujo Detallado de la Máquina de Estados Finitos (FSM)
+
+La FSM del receptor UART implementa un protocolo de recepción secuencial que maneja la detección, sincronización, deserialización y validación de frames UART entrantes.
+
+#### **Diagrama de Máquina de Estados Algorítmica**
+
+<p align="center">
+  <a>
+    <img src="imgs/rx_asmdp.jpg" alt="Receiver ASMDP">
+  </a>
+</p>
+<p align="center"><em>Máquina de estados del receptor uart_rx</em></p>
+
+### 3.7 Verificación Exhaustiva: Testbench del Receptor UART
+
+#### **Arquitectura de Verificación Basada en Vectores Python**
+
+La verificación del módulo receptor UART se implementó mediante una estrategia de golden model, donde un script Python (`gen_uart_rx_vectors.py`) genera vectores de prueba que sirven como referencia para validar el comportamiento del DUT (Device Under Test). Se sigue la misma filosofía que con el módulo transmisor UART.
+
+#### **Categorías de Vectores de Prueba**
+
+El generador Python produce **50 vectores totales** distribuidos en tres modos de paridad (NONE, EVEN, ODD) y tres categorías de casos:
+
+**1. Smoke Tests (6 Vectores por Modo)**
+
+Casos básicos predefinidos para validación rápida:
+- `BASIC_1F` (0x1F): Patrón con bits alternados en nibble bajo
+- `ALL_ZERO` (0x00): Todos los bits en 0
+- `MSB_SET` (0x80): Solo MSB activo
+- `ALL_ONES` (0xFF): Todos los bits en 1
+- `ALT_55` (0x55): Patrón alternado 01010101
+- `ALT_AA` (0xAA): Patrón alternado 10101010
+
+Estos casos validan:
+- Reconstrucción correcta de patrones conocidos
+- Muestreo LSB-first funcional
+- Cálculo correcto de paridad para casos extremos
+
+**2. Random Tests (9 Vectores por Modo)**
+
+Casos generados pseudoaleatoriamente con **semillas fijas** para reproducibilidad:
+
+Ventajas:
+- Cobertura del espacio de datos (0-255)
+- Reproducibilidad entre ejecuciones (mismos vectores siempre)
+- Validación de casos no anticipados en smoke tests
+
+**3. Error Tests (1-2 Vectores por Modo)**
+
+Casos con errores intencionales para validar detección:
+
+**a) Frame Error (Todos los Modos):**
+```python
+data_ferr = 0x99 # STOP bit forzado a 0 en lugar de 1
+```
+Valida que `frame_error` flag se active correctamente.
+
+**b) Parity Error (Solo EVEN/ODD):**
+```python
+data_perr = 0x42 # Bit de paridad invertido intencionalmente
+```
+Valida que `parity_error` flag se active correctamente.
+
+**Distribución Total de Vectores:**
+- **NONE:** 6 smoke + 9 random + 1 frame_err = **16 vectores**
+- **EVEN:** 6 smoke + 9 random + 1 parity_err + 1 frame_err = **17 vectores**
+- **ODD:** 6 smoke + 9 random + 1 parity_err + 1 frame_err = **17 vectores**
+- **TOTAL:** 16 + 17 + 17 = **50 vectores**
+
+#### **Mecánica del Testbench: Inyección Serial y Captura de Respuesta**
+
+El testbench implementa dos componentes críticos:
+
+**1. Tarea inject_frame: Inyección Bit-a-Bit con Timing Preciso:** Esta tarea simula un transmisor UART perfecto, replicando el timing exacto que el receptor espera.
+
+**2. Monitor de Captura Asíncrono con Always Block:** el testbench emplea un always block que captura el pulso en paralelo con la inyección
+
+#### **Validación Multi-Aspecto por Vector**
+
+Para cada vector de prueba, el testbench valida:
+
+**1. Reconstrucción Correcta del Byte**
+
+**2. Detección Correcta de Error de Paridad**
+
+**3. Detección Correcta de Error de Frame:**
+
+**4. Generación de Pulso rx_done_tick:**
+
+### 3.8 Comparación Transmisor (TX) vs Receptor (RX)
+
+#### **Diferencias entre TX y RX**
+
+| Característica | TX (Generador de Bits) | RX (Reconstructor de Bits) |
+|----------------|------------------------|----------------------------|
+| **Dirección de flujo** | Paralelo → Serie | Serie → Paralelo |
+| **Sincronización** | Controlada | Asíncrona (detectar START) |
+| **Detección de errores** | No genera (asume datos válidos) | **Debe detectar** (parity_error, frame_error) |
+| **Estado IDLE** | Espera tx_start con latch o señal en alto de FIFO | **Monitoreo continuo** de línea RX |
+| **Criticidad de mid-bit** | No crítico (genera bits completos) | **Crítico** (único punto de muestreo estable) |
+
+#### **Complementariedad en el Sistema UART Full-Duplex**
+
+- **TX:** Serializa comandos y resultados de la ALU para transmisión remota
+- **RX:** Deserializa comandos recibidos para control de la ALU local
+
+En un sistema bidireccional completo, cada dispositivo tiene un TX y un RX operando simultáneamente, permitiendo comunicación full-duplex asíncrona.
+
+### 3.9 Diagrama RTL del Módulo UART RX
+
+<p align="center">
+  <a>
+    <img src="imgs/rx_rtl.jpg" alt="Receiver">
+  </a>
+</p>
+<p align="center"><em>Vista RTL sintetizada del receptor uart_rx</em></p>
+
+---
+
+## 4. Módulo Integrador: uart_top
+
+### 4.1 Arquitectura del Sistema UART Completo
+
+El módulo `uart_top` integra el generador de baudrate, el transceptor (TX y RX) y las FIFOs sincrónicas que desacoplan la velocidad de cálculo de la ALU del canal serie.
+
+#### **Componentes Integrados**
+
+El sistema se compone de seis módulos interconectados:
+
+1. **uart_baudrate_gen**: Generador de temporización base
+   - Produce señales `baud_tick` (×1) y `baud_x16_tick` (×16)
+   - Configurable vía parámetros CLOCK_FREQ y BAUD_RATE
+   - Entrada común para TX y RX
+
+2. **uart_rx**: Receptor serie
+   - Deserializa frames UART desde PC
+   - Detecta errores de paridad y frame
+   - Escribe datos válidos en FIFO_RX con control de flujo
+
+3. **sync_fifo (FIFO_RX)**: Buffer de recepción
+   - Almacena frames recibidos antes de procesamiento por ALU
+   - Profundidad configurable (parámetro FIFO_DEPTH)
+   - Señales de estado: empty, full, level
+
+4. **sync_fifo (FIFO_TX)**: Buffer de transmisión
+   - Almacena frames generados por ALU antes de transmisión
+   - Permite escrituras no bloqueantes desde ALU
+   - Alimenta uart_tx automáticamente
+
+5. **uart_tx**: Transmisor serie
+   - Serializa datos desde FIFO_TX hacia PC
+   - Opera en modo FIFO (write_o/read_en)
+   - Estado S_LOAD para sincronización con FIFO
+
+6. **uart_top**: Módulo integrador (este nivel)
+   - Interconecta todos los componentes
+   - Gestión centralizada de reset
+   - Interfaz limpia hacia ALU y líneas físicas
+
+### 4.2 Flujos de Datos y Control de Flujo
+
+#### **Flujo de Recepción (PC → ALU) con Backpressure**
+
+El flujo de recepción gestiona el estado de la FIFO para evitar pérdidas silenciosas de datos ante saturación:
+
+**Características Clave del Control de Flujo RX:**
+
+1. **No Bloqueante:** uart_rx NUNCA se detiene, incluso si FIFO está llena
+   - Continúa recepción de frames subsecuentes
+   - Pérdida de datos es explícita (frame descartado)
+
+2. **Responsabilidad de Dimensionamiento:** 
+   - Profundidad de FIFO_RX debe dimensionarse según:
+     * Tasa de recepción: baudrate / (bits por frame)
+     * Tasa de procesamiento: frecuencia de lectura por ALU
+     * Latencia ALU: tiempo entre read_en consecutivos
+
+3. **Señalización de Errores Independiente:**
+   - `parity_error` y `frame_error` se activan INDEPENDIENTEMENTE del estado de FIFO
+   - Frames con error también consumen espacio en FIFO (si hay espacio)
+   - ALU debe verificar flags de error antes de procesar datos
+
+#### **Flujo de Transmisión (ALU → PC) con Buffering**
+
+El flujo de transmisión desacopla completamente la generación de datos por la ALU de la velocidad del baudrate UART:
+
+**Ventajas del Buffering con FIFO_TX:**
+
+1. **Escrituras No Bloqueantes:**
+   - ALU puede escribir ráfagas de datos sin esperar transmisión
+   - FIFO absorbe diferencia de velocidad (ALU rápida vs UART lenta)
+
+2. **Throughput Máximo:**
+   - Si FIFO_TX tiene datos, uart_tx transmite back-to-back
+   - No hay gaps entre frames consecutivos (excepto tiempo S_IDLE→S_LOAD→S_START)
+
+### 4.3 Parámetros Configurables y Flexibilidad del Diseño
+
+El módulo uart_top está completamente parametrizado, permitiendo adaptación a diferentes aplicaciones sin modificar código RTL:
+
+#### **Tabla de Parámetros**
+
+| Parámetro | Tipo | Default | Rango Típico | Descripción |
+|-----------|------|---------|--------------|-------------|
+| DATA_BITS | int | 8 | 5-9 | Cantidad de bits de datos UART |
+| PARITY | parity_t | PARITY_NONE | NONE/EVEN/ODD | Modo de verificación de paridad |
+| OVERSAMPLE | int | 16 | 8/16/32 | Factor de oversampling RX |
+| CLOCK_FREQ | int | 12_000_000 | Variable | Frecuencia del reloj del sistema (Hz) |
+| BAUD_RATE | int | 9600 | 300-115200 | Velocidad de transmisión (bps) |
+| FIFO_DEPTH | int | 32 | 4-256 | Profundidad de FIFOs RX y TX |
+
+### 4.4 Verificación del Sistema Completo: uart_top_tb
+
+#### **Estrategia de Verificación Loopback**
+
+La testbench `uart_top_tb.sv` implementa una prueba de loopback completa que valida el sistema end-to-end.
+
+**Flujo de la Prueba:**
+
+1. **DRIVER_RX** (proceso fork 1):
+   - Genera secuencia de bytes de prueba: `{0x55, 0xA3, 0x00, 0xFF}`
+   - Transmite cada byte serialmente por línea `rx` usando `uart_send_byte`
+   - Timing preciso: START + 8 DATA + STOP a velocidad del baudrate
+
+2. **ALU Emulada** (siempre activa):
+   - FSM de 2 estados: S_IDLE, S_WAIT_DATA
+   - En S_IDLE: Si `!rx_fifo_empty && !tx_fifo_full` → genera `read_en_rx_top`, transiciona a S_WAIT_DATA
+   - En S_WAIT_DATA: Espera `data_valid_rx`, copia `data_out_rx` a `tx_data_in`, genera `write_en_tx_top`
+   - Efecto neto: **loopback perfecto** (RX → TX sin modificación)
+
+3. **MONITOR_TX** (proceso fork 2):
+   - Espera frames en línea `tx`
+   - Detecta START bit (flanco 1→0)
+   - Muestrea 8 bits de datos en el centro de cada período
+   - Almacena bytes recibidos en arreglo `rx_vec[]`
+
+4. **Comparación Final**:
+   - Compara `tx_vec[]` (enviado por RX) vs `rx_vec[]` (recibido desde TX)
+   - Valida loopback: `∀i: tx_vec[i] === rx_vec[i]`
+
+#### **Resultados de Verificación**
+
+La testbench valida múltiples aspectos del sistema:
+
+**1. Integridad de Datos:**
+- Bytes transmitidos se reciben sin alteración
+- Orden LSB-first se preserva en ambas direcciones
+
+**2. Sincronización de FIFOs:**
+- FIFO_RX bufferiza correctamente datos recibidos
+- FIFO_TX alimenta uart_tx sin pérdida de datos
+- Estado S_LOAD en uart_tx compensa latencia de sync_fifo
+
+**3. Timing del Sistema:**
+- Baudrate generator produce timing correcto
+- TX y RX operan a misma velocidad configurada
+- ALU procesa datos más rápido que velocidad UART (sin saturación de FIFOs)
+
+**4. Control de Flujo:**
+- Señales `write_o`, `read_en` funcionan correctamente
+- Handshakes entre módulos sin race conditions
+
+### 4.5 Diagrama del Módulo uart_top
+
+<p align="center">
+  <a>
+    <img src="imgs/uart_rtl.jpg" alt="UART Top RTL">
+  </a>
+</p>
+<p align="center"><em>Representación RTL sintetizada del módulo uart_top</em></p>
+
+### 4.6 Esquemático del Módulo uart_top
+
+<p align="center">
+  <a>
+    <img src="imgs/uart_sch.png" alt="UART Top RTL">
+  </a>
+</p>
+<p align="center"><em>Esquemático jerárquico de uart_top dentro de Vivado</em></p>
+
+---
+
+## 5. Módulos de Integración UART ↔ ALU
+
+<p align="center">
+  <a>
+    <img src="imgs/System_Arquitecture.png" alt="Arquitectura completa UART ↔ ALU">
+  </a>
+</p>
+<p align="center"><em>Arquitectura completa que enlaza UART, FIFOs y ALU</em></p>
+
+Los módulos de nivel superior encapsulan la interacción entre la UART parametrizable y la lógica de la ALU. Esta sección describe su rol, interconexiones y estados internos más relevantes.
+
+### 5.1 `uart_loopback_top.sv`: Respuesta Serial con Indicadores
+
+El archivo `src/rtl/uart_loopback_top.sv` implementa el “top” cargado en la FPGA para las pruebas de laboratorio. Sus funciones principales son:
+
+- **Instanciar `uart_top` y `alu_top_fsm`** sobre el reloj de 12 MHz, compartiendo las FIFOs internas para desacoplar los dominios de velocidad.
+- **Gestionar el reset físico de la placa** invirtiendo el botón activo en bajo (`rst_n = ~rst`) para reutilizar módulos que esperan reset activo en alto.
+- **FSM de respuesta (`RESP_IDLE … RESP_ETX`)**: cada vez que `alu_exec_pulse` se eleva, la lógica captura el resultado y los flags `{zero, cout}` y los empaqueta en un frame `[STX][RESULT][FLAGS][ETX]`. La señal `write_en_tx_top` sólo se afirma cuando `tx_fifo_full=0`, asegurando que la FIFO de transmisión no se desborde.
+- **Indicadores LED temporizados**: dos contadores de ~100 ms mantienen `led0` encendido tras un `rx_done_tick` y `led1` tras `tx_done_tick`, lo que facilita el debug visual sin depender del terminal serie.
+
+En conjunto, este módulo demuestra cómo la UART puede responder automáticamente a cada ejecución de la ALU sin requerir firmware adicional: recibe comandos desde el host, los procesa mediante `alu_top_fsm` y publica el resultado en cuanto está disponible.
+
+<p align="center">
+  <a>
+    <img src="imgs/Uart_Response_FSM.png" alt="FSM de respuesta UART">
+  </a>
+</p>
+<p align="center"><em>FSM que encapsula la respuesta `[STX][RESULT][FLAGS][ETX]`</em></p>
+
+El diagrama muestra la secuencia `RESP_IDLE → RESP_STX → RESP_PAYLOAD → RESP_FLAGS → RESP_ETX`. Cada transición se habilita únicamente cuando `tx_fifo_full=0`, asegurando que el módulo no intente escribir en una FIFO llena mientras arma el paquete con el resultado y los flags.
+
+### 5.2 `uart_packet_decoder.sv`: FSM de Decodificación de Paquetes
+
+<p align="center">
+  <a>
+    <img src="imgs/UART_Packet_Decoder.png" alt="FSM conceptual del decoder UART">
+  </a>
+</p>
+<p align="center"><em>FSM conceptual del módulo uart_packet_decoder</em></p>
+
+El módulo (`src/rtl/uart_packet_decoder.sv`) consume bytes almacenados en la RX FIFO y reconoce tramas `[0x02][CMD][DATA][0x03]`. Sus características más importantes son:
+
+- **FSM de 4 estados (`WAIT_START`, `RECV_CMD`, `RECV_DATA`, `WAIT_END`)** que valida STX/ETX y rechaza comandos fuera del conjunto `{A,B,C,E}`. Los bytes válidos se almacenan en `buffer_a`, `buffer_b` y `buffer_sel`.
+- **Secuenciador de ejecución**: un segundo `exec_state` convierte el comando `E` en la serie de pulsos `load_sel`, `load_a`, `load_b` y luego `exec_pulse`, respetando la restricción de que sólo hay un bus `alu_data`.
+- **Flags de error** (`decoder_error` y `packet_complete`) que permiten al firmware distinguir entre paquetes aceptados y descartados.
+
+<p align="center">
+  <a>
+    <img src="imgs/Simulation_UART.png" alt="Simulación de tb_uart_packet_decoder en Vivado">
+  </a>
+</p>
+<p align="center"><em>Captura del testbench tb_uart_packet_decoder</em></p>
+
+La figura anterior corresponde al testbench `tb_uart_packet_decoder.sv`: se observan los bytes en `rx_fifo_data` y la activación secuencial de `load_*`/`exec_pulse`, confirmando que la FSM aplica el protocolo descrito. 
+
+<p align="center">
+  <a>
+    <img src="imgs/Uart Decoder.png" alt="Diagrama RTL del módulo uart_packet_decoder.sv">
+  </a>
+</p>
+<p align="center"><em>Diagrama RTL sintetizado de uart_packet_decoder</em></p>
+
+### 5.3 `alu_top_fsm.v`: Puente hacia la ALU Parametrizable
+
+<p align="center">
+  <a>
+    <img src="imgs/ALU_UART_Interface.png" alt="FSM principal que interactúa con la ALU">
+  </a>
+</p>
+<p align="center"><em>FSM principal que integra la ALU con la UART</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/ALU_Top_FSM.png" alt="Interfaz del módulo ALU Top FSM">
+  </a>
+</p>
+<p align="center"><em>Diagrama de bloques del módulo alu_top_fsm</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Uart_loopback_top.png" alt="Interfaz del módulo UART Loopback TOP">
+  </a>
+</p>
+<p align="center"><em>Bloque principal uart_loopback_top con puertos físicos</em></p>
+
+Este top, `src/rtl/uart_loopback_top.v`, encapsula la ruta PC↔ALU↔PC: recibe comandos por `rx`, resetea internamente con `rst` y `clk`, delega la decodificación a `alu_top_fsm` y entrega frames de respuesta por `tx` mientras expone actividad mediante `led0`/`led1`.
+
+El módulo `src/rtl/alu_top_fsm.v` integra `uart_packet_decoder` con `alu_top`. Resumen de su implementación:
+
+- **Reuso del decoder como submódulo**: expone `rx_fifo_read_en`/`rx_fifo_data` al exterior para que el `uart_top` pueda alimentarlo directamente.
+- **Instancia de `alu_top`**: recibe el bus `alu_data` y los pulsos de carga y entrega `alu_result`, `alu_cout`, `alu_zero`.
+- **Propagación del `exec_pulse`**: el pulso generado por el decoder se expone como `alu_exec_pulse`, reutilizado por `uart_loopback_top` para saber cuándo capturar el resultado.
+- **Separación de responsabilidades**: `alu_top_fsm` no modifica los datos, sólo coordina tiempos y mantiene la lectura del FIFO sincronizada con las ejecuciones, evitando ciclos muertos entre cargas.
+
+<p align="center">
+  <a>
+    <img src="imgs/Alu_execution_fsm.png" alt="FSM de ejecución en alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Secuencia de carga y disparo de la ALU dentro de alu_top_fsm</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Alu_top_fsm_in.png" alt="Entradas RTL de alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Conexiones de entrada entre `uart_packet_decoder` y `alu_top`</em></p>
+
+<p align="center">
+  <a>
+    <img src="imgs/Alu_top_fsm_out.png" alt="Salidas RTL de alu_top_fsm">
+  </a>
+</p>
+<p align="center"><em>Salidas propagadas a la ALU y al wrapper superior</em></p>
+
+Estos módulos (loopback_top, packet_decoder y alu_top_fsm) conforman la capa de control que hace posible manejar la ALU vía UART.
+
+---
+
+## 6. Validación en Hardware sobre CMOD A7 con Scripts Python
+
+La verificación final se realiza conectando directamente la UART de la Cmod A7 al host, en nuestro caso el PC. Dos scripts en `scripts/` automatizan tanto las pruebas regresivas como la interacción manual:
+
+1. `python3 scripts/alu_uart_serial_test.py --port /dev/ttyUSB0`: recorre todas las operaciones de la ALU con operandos controlados, evalúa las respuestas de la FPGA y compara los flags reportados contra un "golden model" en Python.
+2. `python3 scripts/alu_uart_tui_curses.py --port /dev/ttyUSB0`: expone una interfaz interactiva en formato TUI que permite modificar operandos/opcode en tiempo real, observar el resultado y monitorear los flags `ZERO` y `CARRY`.
+
+### 6.1 Procedimiento de Prueba Automática
+
+El script `alu_uart_serial_test.py` implementa los mismos frames `[STX][CMD][DATA][ETX]` utilizados en los testbenches. Cada iteración realiza:
+
+1. Envío secuencial de `C`, `A`, `B` y `E` con datos previamente calculados.
+2. Lectura de los dos frames retornados por el `uart_tx` (resultado + flags) y verificación de paridad.
+3. Registro en consola de cualquier discrepancia, con la operación que la produjo.
+
+Con esto se obtiene evidencia directa de que el RTL sintetizado y cargado en la FPGA responde igual que la simulación.
+
+### 6.2 Interacción Manual con TUI
+
+El script `alu_uart_tui_curses.py` facilita la interacción manual mediante un TUI. Consiste en lo siguiente:
+
+- Valores actuales de operandos y opcode
+- Resultado y flags entregados por la UART
+
+Permite realizar operaciones de forma manual, agilizando la exploración de casos límite (por ejemplo, overflow o borrow) y como un test básico para entender el funcionamiento de la implementación.

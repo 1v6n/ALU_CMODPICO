@@ -17,9 +17,6 @@ vivado*.str
 constraints/README.md
 constraints/Cmod-A7-Master.xdc
 
-# Documentation and Misc
-AGENTS.md
-
 # Simulation Artifacts (Verilator)
 *.vcd
 obj_dir/
